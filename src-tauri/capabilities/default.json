@@ -1,0 +1,17 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "The card and the console, nothing else.",
+  "windows": ["card", "console"],
+  "permissions": [
+    "core:default",
+    "core:window:allow-start-dragging",
+    "core:window:allow-set-position",
+    "core:window:allow-show",
+    "core:window:allow-hide",
+    "updater:default",
+    "process:default",
+    "autostart:default",
+    "opener:default"
+  ]
+}

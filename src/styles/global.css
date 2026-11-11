@@ -1,0 +1,71 @@
+@import "tailwindcss";
+@import "./theme.css";
+
+@font-face {
+  font-family: "Inter";
+  src: url("../assets/fonts/InterVariable.woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: block;
+}
+
+@layer base {
+  /* The theme's `@theme inline` block re-declares these as
+     `--font-sans: var(--font-sans)`, which is self-referential and therefore
+     invalid, so `font-sans`/`font-mono` silently fell back to the browser
+     default. Re-declaring them here (later, same specificity) wins. */
+  :root {
+    --font-sans: Inter, ui-sans-serif, system-ui, sans-serif;
+    --font-mono: ui-monospace, "SFMono-Regular", "JetBrains Mono", Menlo,
+      Consolas, "Liberation Mono", monospace;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+    margin: 0;
+  }
+
+  html {
+    color-scheme: dark;
+  }
+
+  body {
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    overflow: hidden;
+  }
+
+  /* The card window is a transparent overlay: no page ground, no scrollbars. */
+  html[data-window="card"],
+  html[data-window="card"] body {
+    background: transparent;
+    overflow: hidden;
+  }
+
+  ::selection {
+    background: color-mix(in srgb, var(--primary) 35%, transparent);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 1ms !important;
+      transition-duration: 1ms !important;
+    }
+  }
+}
+
+@layer utilities {
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+}

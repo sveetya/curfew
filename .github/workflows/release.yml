@@ -1,0 +1,51 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> target"
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Typecheck and unit tests
+        run: |
+          npx tsc -p tsconfig.json --noEmit
+          npx vitest run
+
+      - name: Core tests
+        run: cargo test -p curfew-core
+
+      - name: Build, sign and publish
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          CURFEW_RELEASE_HASH: ${{ secrets.CURFEW_RELEASE_HASH }}
+        with:
+          tagName: v__VERSION__
+          releaseName: "Curfew v__VERSION__"
+          releaseBody: "Signed Windows build. The updater verifies the manifest hash before installing."
+          releaseDraft: false
+          prerelease: false
