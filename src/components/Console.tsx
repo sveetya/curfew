@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api, isTauri } from "@/lib/bridge";
 import { clock, percentLeft, parseHHmm } from "@/lib/format";
+import { scheduleDiffers } from "@/lib/config";
 import { borrowedTotal, parseLog } from "@/lib/log";
 import type { CurfewConfig, CurfewState, LogSummary } from "@/lib/types";
 import { Badge } from "@/components/ui/badge";
@@ -45,6 +46,10 @@ export function Console() {
   const [config, setConfig] = useState<CurfewConfig | null>(null);
   const [draft, setDraft] = useState<CurfewConfig | null>(null);
   const [saved, setSaved] = useState(false);
+  const [asking, setAsking] = useState(false);
+  const [key, setKey] = useState("");
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
   const [version, setVersion] = useState("0.1.0");
   const [update, setUpdate] = useState<{ available: boolean; version: string; notes: string } | null>(null);
   const [updateBusy, setUpdateBusy] = useState(false);
@@ -72,13 +77,34 @@ export function Console() {
 
   const rows: LogSummary[] = useMemo(() => parseLog(logText), [logText]);
 
-  const save = async () => {
+  const scheduleMoves = draft && config ? scheduleDiffers(draft, config) : false;
+
+  const commit = async (withKey?: string) => {
     if (!draft) return;
-    const next = await api.setConfig(draft);
-    setConfig(next);
-    setDraft(next);
-    setSaved(true);
-    window.setTimeout(() => setSaved(false), 1600);
+    setSaving(true);
+    try {
+      const next = await api.setConfig(draft, withKey);
+      setConfig(next);
+      setDraft(next);
+      setAsking(false);
+      setKey("");
+      setSaveError(null);
+      setSaved(true);
+      window.setTimeout(() => setSaved(false), 1600);
+    } catch (error) {
+      setSaveError(String(error).replace(/^.*Error:\s*/, ""));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const save = async () => {
+    if (scheduleMoves) {
+      setAsking(true);
+      setSaveError(null);
+      return;
+    }
+    await commit();
   };
 
   const openCard = async () => {
@@ -381,7 +407,8 @@ export function Console() {
               <CardHeader className="p-5">
                 <CardTitle>Schedule</CardTitle>
                 <CardDescription>
-                  Saved to config.json and applied to the NightCurfew task immediately.
+                  Saved to config.json and applied to the Curfew task immediately. Moving the
+                  clock needs the release key; the switches do not.
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-5 p-5 pt-0">
@@ -450,14 +477,59 @@ export function Console() {
                   ))}
                 </div>
 
-                <div className="flex items-center gap-3">
-                  <Button size="sm" onClick={() => void save()}>
-                    Save schedule
-                  </Button>
-                  <span className="text-[11px] text-muted-foreground">
-                    {saved ? "Saved. Task Scheduler updated." : `Armed nightly at ${config?.start}.`}
-                  </span>
-                </div>
+                {asking ? (
+                  <form
+                    className="space-y-2"
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      void commit(key);
+                    }}
+                  >
+                    <p className="text-[11px] text-muted-foreground">
+                      The clock is key-gated. Enter the release key to move it.
+                    </p>
+                    <div className="flex gap-2">
+                      <input
+                        autoFocus
+                        type="password"
+                        value={key}
+                        onChange={(event) => setKey(event.target.value)}
+                        placeholder="release key"
+                        aria-label="Release key"
+                        className="h-10 min-w-0 flex-1 rounded-full border border-input bg-input/40 px-4 font-mono text-xs"
+                      />
+                      <Button type="submit" size="sm" className="h-10" disabled={saving}>
+                        Unlock &amp; save
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-10"
+                        onClick={() => {
+                          setAsking(false);
+                          setKey("");
+                          setSaveError(null);
+                        }}
+                      >
+                        Cancel
+                      </Button>
+                    </div>
+                    {saveError && <p className="text-[11px] text-destructive">{saveError}</p>}
+                  </form>
+                ) : (
+                  <div className="flex items-center gap-3">
+                    <Button size="sm" onClick={() => void save()}>
+                      Save schedule
+                    </Button>
+                    <span className="text-[11px] text-muted-foreground">
+                      {saved
+                        ? "Saved. Task Scheduler updated."
+                        : scheduleMoves
+                          ? "Changing the clock needs the release key."
+                          : `Armed nightly at ${config?.start}.`}
+                    </span>
+                  </div>
+                )}
               </CardContent>
             </Card>
           )}

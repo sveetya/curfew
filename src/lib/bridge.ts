@@ -39,8 +39,10 @@ export const api = {
   getConfig: (): Promise<CurfewConfig> =>
     isTauri ? invoke<CurfewConfig>("get_config") : mock.getConfig(),
 
-  setConfig: (next: CurfewConfig): Promise<CurfewConfig> =>
-    isTauri ? invoke<CurfewConfig>("set_config", { config: next }) : mock.setConfig(next),
+  setConfig: (next: CurfewConfig, key?: string): Promise<CurfewConfig> =>
+    isTauri
+      ? invoke<CurfewConfig>("set_config", { config: next, key: key ?? null })
+      : mock.setConfig(next, key),
 
   setAutostart: (enabled: boolean): Promise<CurfewConfig> =>
     isTauri
@@ -56,7 +58,7 @@ export const api = {
   },
 
   getVersion: async (): Promise<string> => {
-    if (!isTauri) return "0.1.0-preview";
+    if (!isTauri) return "0.1.1-preview";
     const { getVersion } = await import("@tauri-apps/api/app");
     return getVersion();
   },

@@ -120,7 +120,17 @@ export const mock = {
       .filter(Boolean)
       .join("\n"),
   getConfig: async () => config,
-  setConfig: async (next: CurfewConfig) => {
+  setConfig: async (next: CurfewConfig, key?: string) => {
+    const movesClock =
+      next.deadline !== config.deadline ||
+      next.start !== config.start ||
+      next.graceMinutes !== config.graceMinutes;
+    if (movesClock) {
+      const normalised = (key ?? "").toUpperCase().replace(/[\s-]/g, "");
+      if (normalised !== PREVIEW_KEY) {
+        throw new Error("Preview: the schedule needs the release key to move.");
+      }
+    }
     config = next;
     borrows = 0;
     startedAt = Date.now();
@@ -132,7 +142,7 @@ export const mock = {
   },
   checkUpdate: async () => ({
     available: false,
-    version: "0.1.0",
+    version: "0.1.1",
     notes: "Preview build: updates are checked on Windows only.",
   }),
   installUpdate: async () => false,

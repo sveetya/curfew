@@ -300,9 +300,65 @@ fn get_config(app: AppHandle) -> Config {
     config::load(&app)
 }
 
+/// Compare a typed key against the build's hash, with the same lockout the
+/// release prompt uses so guessing costs clock here too.
+fn verify_key(app: &AppHandle, runtime: &Runtime, key: &str) -> Result<(), String> {
+    let now = Local::now();
+    let mut inner = runtime.inner.lock().expect("runtime lock");
+
+    if let Some(until) = inner.lockout_until {
+        let left = (until - now).num_seconds().max(0);
+        if left > 0 {
+            return Err(format!("Locked. {} left.", humanise(left)));
+        }
+    }
+
+    let expected = RELEASE_HASH.ok_or(
+        "This build carries no release key, so the schedule cannot be moved.",
+    )?;
+
+    if audit::sha256_hex(&audit::normalize_key(key)).eq_ignore_ascii_case(expected.trim()) {
+        inner.lockout_until = None;
+        Ok(())
+    } else {
+        inner.lockout_until = Some(now + Duration::minutes(LOCK_MINUTES));
+        let _ = audit::append(
+            &log_path(app),
+            now,
+            &format!("schedule change FAILED; locked {LOCK_MINUTES} min"),
+        );
+        Err(format!("Wrong key. Locked for {LOCK_MINUTES} minutes."))
+    }
+}
+
 #[tauri::command]
-fn set_config(app: AppHandle, runtime: State<Runtime>, config: Config) -> Result<Config, String> {
+fn set_config(
+    app: AppHandle,
+    runtime: State<Runtime>,
+    config: Config,
+    key: Option<String>,
+) -> Result<Config, String> {
     config.validate()?;
+
+    let current = config::load(&app);
+    let moves_clock = config.deadline != current.deadline
+        || config.start != current.start
+        || config.grace_minutes != current.grace_minutes;
+
+    // The whole point of the curfew is that you cannot quietly reschedule it at
+    // 21:50. Anything that moves the clock needs the key MARA holds.
+    if moves_clock {
+        verify_key(&app, &runtime, key.as_deref().unwrap_or(""))?;
+        let _ = audit::append(
+            &log_path(&app),
+            Local::now(),
+            &format!(
+                "schedule moved; card {} shutdown {} grace {} min",
+                config.start, config.deadline, config.grace_minutes
+            ),
+        );
+    }
+
     config::save(&app, &config)?;
     {
         let mut inner = runtime.inner.lock().expect("runtime lock");

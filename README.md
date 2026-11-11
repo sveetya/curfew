@@ -1,7 +1,7 @@
 # Curfew
 
 A night curfew for the Windows laptop. A card sits in the top right corner and
-counts down to 22:00, flips to **FINISH UP** for the last five minutes, then
+counts down to the shutdown time (22:00 by default), flips to **FINISH UP** for the last five minutes, then
 Windows goes down. There is no cancel button. Getting out early needs a release
 key that is not stored anywhere on the machine.
 
@@ -66,6 +66,18 @@ python3 -c "import hashlib,sys; print(hashlib.sha256(b'NIGHT-OWL-7391').hexdiges
 Then put that hex in the repo secret `CURFEW_RELEASE_HASH`. Change the key by
 rebuilding; nothing on the laptop can recover it.
 
+### The key also guards the clock
+
+The same key gates the schedule. Changing the card time, the shutdown time or
+the grace length asks for it; the battery / wake / autostart switches do not.
+That is deliberate: a curfew you can push back at 21:50 by clicking a spinner is
+not a curfew. A wrong key locks the prompt for five minutes, exactly like the
+Release button, and the attempt lands in the audit log as
+`schedule change FAILED`.
+
+A build with no `CURFEW_RELEASE_HASH` can neither release nor be rescheduled —
+the settings page says so instead of pretending to save.
+
 ## Layout
 
 ```
@@ -74,7 +86,7 @@ curfew/
 │   └── src/{curfew,schedule,audit}.rs
 ├── src/             React 19 + Tailwind v4 + hand-written shadcn primitives
 │   ├── components/{CurfewCard,Console}.tsx
-│   ├── lib/{format,log,bridge,mock,types}.ts
+│   ├── lib/{format,log,bridge,mock,config,types}.ts
 │   └── styles/{theme,global}.css
 ├── src-tauri/       Tauri 2 shell: tray, commands, capabilities, config
 └── .github/workflows/{ci,release}.yml
