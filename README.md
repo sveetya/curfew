@@ -11,6 +11,19 @@ and every dodge leaves a record.
 This is the Tauri rewrite of the PowerShell `LightsOut` app. Both read the same
 kind of audit log, so an old log still parses in the console.
 
+## Install (Windows)
+
+Download the `.exe` from [Releases](https://github.com/sveetya/curfew/releases),
+run it, and the console opens. The nightly task is created on the first save in
+Settings. The card appears by itself at 21:30.
+
+After that, updates install themselves: the app checks the signed
+`latest.json` manifest on launch and offers the new build. The repo has to stay
+**public** for that — the updater fetches the manifest without credentials.
+
+The two keys live in Proton Pass, vault `MARA`: *Curfew updater signing key* and
+*Curfew release key*. Nothing that matters is recoverable from this repo.
+
 ## What a night looks like
 
 | Time | Card | What is happening |
