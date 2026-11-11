@@ -9,6 +9,7 @@ const saved: CurfewConfig = {
   batteryAllowed: true,
   wakeToRun: true,
   autostartConsole: false,
+  logDir: "",
 };
 
 describe("scheduleDiffers", () => {
@@ -26,6 +27,10 @@ describe("scheduleDiffers", () => {
 
   it("is true when grace changes", () => {
     expect(scheduleDiffers({ ...saved, graceMinutes: 0 }, saved)).toBe(true);
+  });
+
+  it("is false when only the log folder changes", () => {
+    expect(scheduleDiffers({ ...saved, logDir: "C:\\Users\\marek\\vault" }, saved)).toBe(false);
   });
 
   it("is false for toggles that do not move the clock", () => {

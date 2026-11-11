@@ -51,7 +51,7 @@ export const api = {
   },
 
   getVersion: async (): Promise<string> => {
-    if (!isTauri) return "0.1.2-preview";
+    if (!isTauri) return "0.1.3-preview";
     const { getVersion } = await import("@tauri-apps/api/app");
     return getVersion();
   },

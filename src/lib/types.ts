@@ -39,6 +39,8 @@ export interface CurfewConfig {
   batteryAllowed: boolean;
   wakeToRun: boolean;
   autostartConsole: boolean;
+  /** Empty = the app's own log folder. */
+  logDir: string;
 }
 
 export interface LogSummary {

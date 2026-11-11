@@ -508,6 +508,27 @@ export function Console() {
                   ))}
                 </div>
 
+                <label className="block space-y-1.5">
+                  <span className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
+                    Audit log folder
+                  </span>
+                  <input
+                    type="text"
+                    value={draft.logDir}
+                    onChange={(event) => setDraft({ ...draft, logDir: event.target.value })}
+                    placeholder="empty: the app's own log folder"
+                    className="h-10 w-full rounded-[var(--radius-sm)] border border-input bg-input/30 px-3 font-mono text-[11px]"
+                  />
+                  <span className="block text-[11px] leading-relaxed text-muted-foreground">
+                    Point this at a synced folder and the log leaves the machine. The card writes
+                    every run here, so the coach can read nights without touching the laptop. Saves
+                    without the key.
+                  </span>
+                  <span className="block font-mono text-[11px] text-muted-foreground/70">
+                    now: {state?.logPath ?? "unknown"}
+                  </span>
+                </label>
+
                 {asking ? (
                   <form
                     className="space-y-2"

@@ -26,6 +26,7 @@ let config: CurfewConfig = {
   batteryAllowed: true,
   wakeToRun: true,
   autostartConsole: false,
+  logDir: "",
 };
 
 let borrows = 0;
@@ -71,7 +72,7 @@ export function previewState(): CurfewState {
     lockoutSeconds: Math.max(0, Math.round((lockoutUntil - now) / 1000)),
     released,
     dryRun: true,
-    logPath: "src/LightsOut.log (preview)",
+    logPath: "preview: no log file on disk",
   };
 }
 

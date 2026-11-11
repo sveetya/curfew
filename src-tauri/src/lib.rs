@@ -7,6 +7,7 @@
 mod config;
 
 use std::path::PathBuf;
+#[cfg(windows)]
 use std::process::Command;
 use std::sync::Mutex;
 
@@ -83,10 +84,16 @@ impl Default for Runtime {
 }
 
 fn log_path(app: &AppHandle) -> PathBuf {
-    app.path()
-        .app_log_dir()
-        .unwrap_or_else(|_| PathBuf::from("."))
-        .join("curfew.log")
+    let config = config::load(app);
+    let dir = config.log_dir.trim();
+    if dir.is_empty() {
+        app.path()
+            .app_log_dir()
+            .unwrap_or_else(|_| PathBuf::from("."))
+            .join("curfew.log")
+    } else {
+        PathBuf::from(dir).join("curfew.log")
+    }
 }
 
 fn today_at(time: &str) -> Option<DateTime<Local>> {

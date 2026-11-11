@@ -1,6 +1,6 @@
 //! Settings that survive a restart.
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 use tauri::path::BaseDirectory;
@@ -22,6 +22,10 @@ pub struct Config {
     /// Bring the machine out of sleep to draw the card.
     pub wake_to_run: bool,
     pub autostart_console: bool,
+    /// Where the audit log lands. Empty means the app's own log folder; setting
+    /// it to a synced folder is what lets the coach read nights from elsewhere.
+    #[serde(default)]
+    pub log_dir: String,
 }
 
 impl Default for Config {
@@ -33,6 +37,7 @@ impl Default for Config {
             battery_allowed: true,
             wake_to_run: true,
             autostart_console: false,
+            log_dir: String::new(),
         }
     }
 }
@@ -48,6 +53,10 @@ impl Config {
         }
         if start >= deadline {
             return Err("the card must open before the shutdown".into());
+        }
+        let log_dir = self.log_dir.trim();
+        if !log_dir.is_empty() && !Path::new(log_dir).is_absolute() {
+            return Err("the log folder must be an absolute path".into());
         }
         Ok(())
     }

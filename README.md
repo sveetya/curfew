@@ -78,6 +78,24 @@ Release button, and the attempt lands in the audit log as
 A build with no `CURFEW_RELEASE_HASH` can neither release nor be rescheduled —
 the settings page says so instead of pretending to save.
 
+### Where the log lives
+
+One line per event, plus one `SUMMARY` line per night, in `curfew.log`. By
+default that is `%LOCALAPPDATA%\cz.mareksvitek.curfew\logs\curfew.log`, on the
+laptop and nowhere else.
+
+Settings → **Audit log folder** overrides it. That field is the hook for reading
+nights remotely: point it at a synced folder (an Obsidian vault, a Syncthing
+directory) and every run leaves the laptop with the file. It saves without the
+release key, because it moves no clock.
+
+```
+2026-11-11 22:00:04  SUMMARY  date=2026-11-11  start=21:30  deadline=22:00
+  grace=300s  borrows=0  released=False  outcome=shutdown
+```
+
+`borrows=4` is the number worth watching, not `borrows=1`.
+
 ## Layout
 
 ```
