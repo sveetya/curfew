@@ -5,6 +5,7 @@
 //! only ever known as a hash, baked in at build time, so the machine cannot
 //! print it back to you at 23:40.
 mod config;
+mod persist;
 
 use std::path::PathBuf;
 #[cfg(windows)]
@@ -27,6 +28,9 @@ use config::Config;
 const RELEASE_HASH: Option<&str> = option_env!("CURFEW_RELEASE_HASH");
 /// Wrong-key lockout, so guessing costs clock instead of being free.
 const LOCK_MINUTES: i64 = 5;
+/// A gap between ticks longer than this is sleep, hibernate or a suspended
+/// session, not spent time. Twenty seconds leaves room for a busy machine.
+const SLEEP_GAP_SECONDS: i64 = 20;
 /// The card's own size; the console is arbitrary.
 const CARD_WIDTH: f64 = 380.0;
 const CARD_HEIGHT: f64 = 248.0;
@@ -68,6 +72,12 @@ struct Inner {
     dry_run: bool,
     lockout_until: Option<DateTime<Local>>,
     summarised: bool,
+    /// Last time the watchdog ticked. A gap larger than SLEEP_GAP_SECONDS means
+    /// the machine slept, and that time must not be spent from the countdown.
+    last_tick: Option<DateTime<Local>>,
+    /// Set once the deadline has fired, so a running process cannot take the
+    /// machine down twice.
+    fired: bool,
 }
 
 impl Default for Runtime {
@@ -78,6 +88,8 @@ impl Default for Runtime {
                 dry_run: false,
                 lockout_until: None,
                 summarised: false,
+                last_tick: None,
+                fired: false,
             }),
         }
     }
@@ -104,7 +116,13 @@ fn today_at(time: &str) -> Option<DateTime<Local>> {
 
 fn plan_for_today(config: &Config) -> Plan {
     let now = Local::now();
-    let deadline = today_at(&config.deadline).unwrap_or(now);
+    let mut deadline = today_at(&config.deadline).unwrap_or(now);
+    // A deadline that is already gone belongs to last night. Rolling it to
+    // tomorrow is what stops a freshly woken laptop from being greeted with an
+    // instant outage the moment the app starts.
+    if (now - deadline).num_seconds() > 60 {
+        deadline += Duration::days(1);
+    }
     Plan::new(deadline, config.grace_minutes, now)
 }
 
@@ -142,6 +160,117 @@ fn state_of(app: &AppHandle, runtime: &Runtime, config: &Config) -> CurfewState 
         dry_run: inner.dry_run,
         log_path: log_path(app).display().to_string(),
     }
+}
+
+// --------------------------------------------------------------- watchdog ---
+//
+// The card is only a renderer. This thread owns the clock, so a hidden window,
+// a throttled webview or a closed console can no longer swallow the deadline.
+
+fn tick(app: &AppHandle) {
+    let config = config::load(app);
+    let now = Local::now();
+
+    let mut snapshot: Option<persist::Saved> = None;
+    let mut fire: Option<(Plan, bool)> = None;
+
+    {
+        let runtime = app.state::<Runtime>();
+        let mut inner = runtime.inner.lock().expect("runtime lock");
+        let mut plan = current_plan(&mut inner, &config);
+
+        if let Some(last) = inner.last_tick {
+            let gap = now.signed_duration_since(last);
+            if gap.num_seconds() > SLEEP_GAP_SECONDS {
+                plan.shift(gap);
+                let _ = audit::append(
+                    &log_path(app),
+                    now,
+                    &format!(
+                        "PAUSED {} min asleep; countdown held; card now says {}",
+                        gap.num_minutes(),
+                        plan.deadline().format("%H:%M")
+                    ),
+                );
+            }
+        }
+
+        let dry = inner.dry_run;
+        if plan.phase(now) == Phase::Expired && !inner.fired && !plan.released() {
+            inner.fired = true;
+            fire = Some((plan.clone(), dry));
+        }
+
+        inner.last_tick = Some(now);
+        inner.plan = Some(plan.clone());
+
+        snapshot = Some(persist::Saved {
+            deadline: plan.deadline().to_rfc3339(),
+            grace_seconds: plan.grace_seconds(),
+            total_seconds: plan.total_seconds(),
+            borrows: plan.borrows(),
+            released: plan.released(),
+            last_tick: now.to_rfc3339(),
+        });
+    }
+
+    let fired_now = fire.is_some();
+
+    if let Some((plan, dry)) = fire {
+        let _ = audit::append(&log_path(app), now, "curfew fired; machine going down");
+        let _ = go_down(app, dry);
+        write_summary(app, &plan, "shutdown");
+        close_card(app);
+    }
+
+    // Five seconds is plenty for a crash-safe checkpoint and keeps the disk
+    // quiet. A fire saves immediately, because that moment matters most.
+    if let Some(saved) = snapshot {
+        if fired_now || now.timestamp().rem_euclid(5) == 0 {
+            persist::save(app, &saved);
+        }
+    }
+}
+
+fn spawn_watchdog(app: AppHandle) {
+    std::thread::spawn(move || loop {
+        std::thread::sleep(std::time::Duration::from_secs(1));
+        tick(&app);
+    });
+}
+
+/// Resume a plan written before a crash, a hibernate or a kill. Yesterday's
+/// plan is not tonight's, so anything older than today is discarded.
+fn restore_saved(app: &AppHandle) {
+    let Some(saved) = persist::load(app) else {
+        return;
+    };
+    let (Ok(deadline), Ok(last)) = (
+        DateTime::parse_from_rfc3339(&saved.deadline),
+        DateTime::parse_from_rfc3339(&saved.last_tick),
+    ) else {
+        persist::clear(app);
+        return;
+    };
+    let deadline = deadline.with_timezone(&Local);
+    let last = last.with_timezone(&Local);
+    let now = Local::now();
+    if last.date_naive() != now.date_naive() || (now - last).num_hours() > 12 {
+        persist::clear(app);
+        return;
+    }
+
+    let runtime = app.state::<Runtime>();
+    let mut inner = runtime.inner.lock().expect("runtime lock");
+    inner.plan = Some(Plan::restore(
+        deadline,
+        saved.grace_seconds,
+        saved.total_seconds,
+        saved.borrows,
+        saved.released,
+    ));
+    inner.last_tick = Some(last);
+    inner.fired = false;
 }
 
 fn write_summary(app: &AppHandle, plan: &Plan, outcome: &str) {
@@ -421,6 +550,33 @@ fn install_task(app: &AppHandle, config: &Config) -> Result<(), String> {
         if !output.status.success() {
             return Err(String::from_utf8_lossy(&output.stderr).to_string());
         }
+
+        // Second, lighter task: bring the app back if it is killed inside the
+        // curfew window. Best effort, a failure here must never break the night.
+        let guard_until = schedule::parse_time(&config.deadline)
+            .map(|m| schedule::format_time(m + 10))
+            .unwrap_or_else(|| config.deadline.clone());
+        let guard = schedule::guard_args(&exe, &config.start, &guard_until, 5);
+        match Command::new("schtasks").args(&guard).output() {
+            Ok(out) if out.status.success() => {}
+            Ok(out) => {
+                let _ = audit::append(
+                    &log_path(app),
+                    Local::now(),
+                    &format!(
+                        "guard task not installed: {}",
+                        String::from_utf8_lossy(&out.stderr).trim()
+                    ),
+                );
+            }
+            Err(err) => {
+                let _ = audit::append(
+                    &log_path(app),
+                    Local::now(),
+                    &format!("guard task not installed: {err}"),
+                );
+            }
+        }
     }
     #[cfg(not(windows))]
     {
@@ -490,10 +646,22 @@ fn open_card(
     let now = Local::now();
     {
         let mut inner = runtime.inner.lock().expect("runtime lock");
-        inner.plan = Some(match minutes {
-            Some(m) if m > 0 => Plan::new(now + Duration::minutes(m), 1, now),
-            _ => Plan::new(today_at(&config.deadline).unwrap_or(now), config.grace_minutes, now),
-        });
+        let keep = match minutes {
+            Some(m) if m > 0 => false,
+            _ => inner
+                .plan
+                .as_ref()
+                .map(|plan| plan.phase(now) != Phase::Expired)
+                .unwrap_or(false),
+        };
+        if !keep {
+            inner.plan = Some(match minutes {
+                Some(m) if m > 0 => Plan::new(now + Duration::minutes(m), 1, now),
+                _ => plan_for_today(&config),
+            });
+            inner.fired = false;
+            inner.last_tick = Some(now);
+        }
         inner.dry_run = dry_run.unwrap_or(false);
         inner.summarised = false;
     }
@@ -518,8 +686,9 @@ fn tray(app: &mut tauri::App) -> tauri::Result<()> {
     let console_item = MenuItem::with_id(app, "console", "Open console", true, None::<&str>)?;
     let test_item = MenuItem::with_id(app, "test", "Test card (2 min)", true, None::<&str>)?;
     let off_item = MenuItem::with_id(app, "off", "Shut down now", true, None::<&str>)?;
-    let quit_item = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&console_item, &test_item, &off_item, &quit_item])?;
+    // No Quit item on purpose: the tray is not an exit hatch from a curfew.
+    // Task Manager still exists, which is why the guard task exists too.
+    let menu = Menu::with_items(app, &[&console_item, &test_item, &off_item])?;
 
     let icon = app
         .default_window_icon()
@@ -539,7 +708,6 @@ fn tray(app: &mut tauri::App) -> tauri::Result<()> {
             "off" => {
                 let _ = go_down(app, false);
             }
-            "quit" => app.exit(0),
             _ => {}
         })
         .on_tray_icon_event(|tray, event| {
@@ -559,11 +727,23 @@ fn open_card_for(app: &AppHandle, minutes: i64) -> Result<(), String> {
     let runtime = app.state::<Runtime>();
     {
         let mut inner = runtime.inner.lock().expect("runtime lock");
-        inner.plan = Some(if minutes > 0 {
-            Plan::new(now + Duration::minutes(minutes), 1, now)
-        } else {
-            Plan::new(today_at(&config.deadline).unwrap_or(now), config.grace_minutes, now)
-        });
+        // A restored plan that is still running wins: an hour asleep must not
+        // be charged to the countdown.
+        let keep = minutes <= 0
+            && inner
+                .plan
+                .as_ref()
+                .map(|plan| plan.phase(now) != Phase::Expired)
+                .unwrap_or(false);
+        if !keep {
+            inner.plan = Some(if minutes > 0 {
+                Plan::new(now + Duration::minutes(minutes), 1, now)
+            } else {
+                plan_for_today(&config)
+            });
+            inner.fired = false;
+            inner.last_tick = Some(now);
+        }
         inner.dry_run = minutes > 0;
         inner.summarised = false;
     }
@@ -573,6 +753,11 @@ fn open_card_for(app: &AppHandle, minutes: i64) -> Result<(), String> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        // Registered first on purpose: a second launch forwards here instead of
+        // starting a second watchdog that could fire its own action.
+        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+            show_console(app);
+        }))
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_opener::init())
@@ -595,14 +780,17 @@ pub fn run() {
         ])
         .setup(|app| {
             tray(app)?;
+            restore_saved(app.handle());
+            spawn_watchdog(app.handle().clone());
 
             // `--card` is how Task Scheduler starts the night; `--tray` is how
             // the console starts at login without a taskbar window.
             let args: Vec<String> = std::env::args().collect();
             let wants_card = args.iter().any(|arg| arg == "--card");
+            let wants_guard = args.iter().any(|arg| arg == "--guard");
             let wants_tray = args.iter().any(|arg| arg == "--tray");
 
-            if wants_card {
+            if wants_card || wants_guard {
                 let _ = open_card_for(&app.handle().clone(), 0);
             } else if !wants_tray {
                 show_console(&app.handle().clone());

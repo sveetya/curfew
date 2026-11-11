@@ -7,6 +7,7 @@
 use std::path::Path;
 
 pub const TASK_NAME: &str = "Curfew";
+pub const GUARD_TASK_NAME: &str = "CurfewGuard";
 
 /// Parse "HH:mm" into minutes since midnight. Two digits each, 24h.
 pub fn parse_time(value: &str) -> Option<i64> {
@@ -50,6 +51,38 @@ pub fn install_args(program: &Path, start: &str) -> Vec<String> {
         "/st".into(),
         start.to_string(),
         "/it".into(),
+        "/f".into(),
+    ]
+}
+
+/// A second task that brings the app back if it is killed inside the curfew
+/// window. `schtasks` cannot express "every N minutes between two times"
+/// without an end time, so the window is passed explicitly.
+pub fn guard_args(program: &Path, from: &str, until: &str, every_minutes: u32) -> Vec<String> {
+    vec![
+        "/create".into(),
+        "/tn".into(),
+        GUARD_TASK_NAME.into(),
+        "/tr".into(),
+        format!("\"{}\" --guard", program.display()),
+        "/sc".into(),
+        "minute".into(),
+        "/mo".into(),
+        every_minutes.to_string(),
+        "/st".into(),
+        from.to_string(),
+        "/et".into(),
+        until.to_string(),
+        "/it".into(),
+        "/f".into(),
+    ]
+}
+
+pub fn guard_delete_args() -> Vec<String> {
+    vec![
+        "/delete".into(),
+        "/tn".into(),
+        GUARD_TASK_NAME.into(),
         "/f".into(),
     ]
 }
@@ -142,5 +175,24 @@ mod tests {
         assert!(delete_args().iter().any(|arg| arg == TASK_NAME));
         assert!(delete_args().iter().any(|arg| arg == "/delete"));
         assert!(query_args().iter().any(|arg| arg == "/query"));
+    }
+}
+
+#[cfg(test)]
+mod guard_tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    #[test]
+    fn guard_runs_the_app_in_tray_mode_every_five_minutes() {
+        let args = guard_args(&PathBuf::from(r"C:\Apps\curfew.exe"), "21:30", "22:10", 5);
+        let target = args.iter().position(|a| a == "/tr").unwrap() + 1;
+        assert!(args[target].contains("--guard"));
+        assert!(args.iter().any(|a| a == "minute"));
+        let mo = args.iter().position(|a| a == "/mo").unwrap();
+        assert_eq!(args[mo + 1], "5");
+        let et = args.iter().position(|a| a == "/et").unwrap();
+        assert_eq!(args[et + 1], "22:10");
+        assert!(args.iter().any(|a| a == "/it"));
     }
 }

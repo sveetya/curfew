@@ -107,6 +107,35 @@ impl Plan {
         self.borrows as i64 * DONATION_MINUTES
     }
 
+    /// Move the whole plan later, used when the machine was asleep. A paused
+    /// countdown keeps its remaining time: only lived minutes are spent.
+    pub fn shift(&mut self, by: Duration) {
+        let seconds = by.num_seconds();
+        if seconds <= 0 {
+            return;
+        }
+        self.deadline += by;
+        self.total_seconds += seconds;
+    }
+
+    /// Rebuild a plan from a saved snapshot, so a crash mid-night keeps the
+    /// deadline and the debt instead of starting over.
+    pub fn restore(
+        deadline: DateTime<Local>,
+        grace_seconds: i64,
+        total_seconds: i64,
+        borrows: u32,
+        released: bool,
+    ) -> Self {
+        Self {
+            deadline,
+            grace_seconds,
+            total_seconds,
+            borrows,
+            released,
+        }
+    }
+
     /// Wait pressed: shutdown moves later. During FINISH UP the same move is
     /// booked as borrowed grace, which is what the debt line is for.
     pub fn wait(&mut self, now: DateTime<Local>) -> WaitOutcome {
@@ -236,5 +265,35 @@ mod tests {
         let mut plan = plan_2200();
         plan.release();
         assert!(plan.released());
+    }
+}
+
+#[cfg(test)]
+mod pause_tests {
+    use super::*;
+    use chrono::Local;
+
+    #[test]
+    fn sleeping_does_not_spend_the_countdown() {
+        let now = Local::now();
+        let mut plan = Plan::new(now + Duration::minutes(30), 5, now);
+        let before = plan.remaining(now);
+        // Wake up forty minutes later: the plan moves with the clock, so the
+        // machine sees the same countdown it went to sleep with.
+        let woke = now + Duration::minutes(40);
+        plan.shift(woke - now);
+        assert_eq!(plan.remaining(woke), before);
+        assert_eq!(plan.phase(woke), Phase::Work);
+    }
+
+    #[test]
+    fn a_restored_plan_keeps_its_debt_and_total() {
+        let now = Local::now();
+        let plan = Plan::restore(now + Duration::minutes(10), 300, 2400, 2, false);
+        assert_eq!(plan.owed_minutes(), 4);
+        assert_eq!(plan.total_seconds(), 2400);
+        // Ten minutes out with a five minute grace is still the countdown.
+        assert_eq!(plan.phase(now), Phase::Work);
+        assert_eq!(plan.phase(now + Duration::minutes(7)), Phase::Grace);
     }
 }
