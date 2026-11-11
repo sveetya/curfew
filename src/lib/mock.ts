@@ -7,8 +7,9 @@
  * TypeScript. It exists so the UI can be seen and styled without a Windows
  * machine; it never touches Windows, and the console says so on screen.
  */
-import type { CurfewConfig, CurfewState, ReleaseResult } from "./types";
+
 import { clock, hhmm } from "./format";
+import type { CurfewConfig, CurfewState, ReleaseResult } from "./types";
 
 const PREVIEW_KEY = "curfew-preview-release";
 
@@ -46,26 +47,19 @@ function deadlineDate(): Date {
 export function previewState(): CurfewState {
   const deadline = deadlineDate();
   const graceSeconds = config.graceMinutes * 60;
-  const totalMs = Math.max(
-    60_000,
-    deadline.getTime() - graceSeconds * 1000 - startedAt,
-  );
+  const totalMs = Math.max(60_000, deadline.getTime() - graceSeconds * 1000 - startedAt);
   const now = Date.now();
   const untilShutdown = Math.round((deadline.getTime() - now) / 1000);
   const override = phaseOverride();
 
-  const remaining =
-    override === "grace"
-      ? 0
-      : Math.max(0, untilShutdown - graceSeconds);
+  const remaining = override === "grace" ? 0 : Math.max(0, untilShutdown - graceSeconds);
   const phase: CurfewState["phase"] =
     remaining > 0 ? "work" : untilShutdown > 0 ? "grace" : "expired";
 
   return {
     deadline: deadline.toISOString(),
     deadlineLabel: hhmm(deadline),
-    remainingSeconds:
-      override === "grace" ? 0 : remaining,
+    remainingSeconds: override === "grace" ? 0 : remaining,
     graceSeconds,
     graceRemainingSeconds: override === "grace" ? 182 : Math.max(0, untilShutdown),
     phase: override === "grace" ? "grace" : phase,

@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
-import { api, isTauri } from "@/lib/bridge";
-import { clock, percentLeft } from "@/lib/format";
-import type { CurfewState } from "@/lib/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/components/ui/card";
+import { api, isTauri } from "@/lib/bridge";
+import { clock, percentLeft } from "@/lib/format";
+import type { CurfewState } from "@/lib/types";
 
 const TONE = {
   work: {
@@ -176,6 +176,7 @@ export function CurfewCard() {
               }}
             >
               <input
+                // biome-ignore lint/a11y/noAutofocus: the prompt exists to be typed into
                 autoFocus
                 value={key}
                 onChange={(event) => setKey(event.target.value)}

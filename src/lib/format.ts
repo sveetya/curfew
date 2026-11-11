@@ -17,9 +17,10 @@ export function clock(totalSeconds: number): string {
 
 /** "22:00" from a Date, in the machine's local zone. */
 export function hhmm(date: Date): string {
-  return `${String(date.getHours()).padStart(2, "0")}:${String(
-    date.getMinutes(),
-  ).padStart(2, "0")}`;
+  return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(
+    2,
+    "0",
+  )}`;
 }
 
 /** Progress bar fill: 100% at the start of the night, 0% at zero. */

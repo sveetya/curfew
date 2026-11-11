@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { CurfewConfig, CurfewState, ReleaseResult } from "./types";
 import { mock } from "./mock";
+import type { CurfewConfig, CurfewState, ReleaseResult } from "./types";
 
 /**
  * One door between the UI and the backend.
@@ -9,8 +9,7 @@ import { mock } from "./mock";
  * TypeScript twin in mock.ts. Components never check which one they are
  * talking to, so the card and the console render identically either way.
  */
-export const isTauri =
-  typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+export const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
 export interface UpdateInfo {
   available: boolean;
@@ -22,19 +21,15 @@ export const api = {
   getState: (): Promise<CurfewState> =>
     isTauri ? invoke<CurfewState>("get_state") : mock.getState(),
 
-  waitTen: (): Promise<CurfewState> =>
-    isTauri ? invoke<CurfewState>("wait_ten") : mock.waitTen(),
+  waitTen: (): Promise<CurfewState> => (isTauri ? invoke<CurfewState>("wait_ten") : mock.waitTen()),
 
   shutdownNow: (): Promise<CurfewState> =>
     isTauri ? invoke<CurfewState>("shutdown_now") : mock.shutdownNow(),
 
   requestRelease: (key: string): Promise<ReleaseResult> =>
-    isTauri
-      ? invoke<ReleaseResult>("request_release", { key })
-      : mock.requestRelease(key),
+    isTauri ? invoke<ReleaseResult>("request_release", { key }) : mock.requestRelease(key),
 
-  readLog: (): Promise<string> =>
-    isTauri ? invoke<string>("read_log") : mock.readLog(),
+  readLog: (): Promise<string> => (isTauri ? invoke<string>("read_log") : mock.readLog()),
 
   getConfig: (): Promise<CurfewConfig> =>
     isTauri ? invoke<CurfewConfig>("get_config") : mock.getConfig(),
@@ -45,9 +40,7 @@ export const api = {
       : mock.setConfig(next, key),
 
   setAutostart: (enabled: boolean): Promise<CurfewConfig> =>
-    isTauri
-      ? invoke<CurfewConfig>("set_autostart", { enabled })
-      : mock.setAutostart(enabled),
+    isTauri ? invoke<CurfewConfig>("set_autostart", { enabled }) : mock.setAutostart(enabled),
 
   checkUpdate: async (): Promise<UpdateInfo> => {
     if (!isTauri) return mock.checkUpdate();
@@ -58,7 +51,7 @@ export const api = {
   },
 
   getVersion: async (): Promise<string> => {
-    if (!isTauri) return "0.1.1-preview";
+    if (!isTauri) return "0.1.2-preview";
     const { getVersion } = await import("@tauri-apps/api/app");
     return getVersion();
   },

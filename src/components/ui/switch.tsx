@@ -23,9 +23,7 @@ export function Switch({
         "relative h-6 w-11 shrink-0 rounded-full border transition-colors duration-150",
         "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
         "disabled:cursor-not-allowed disabled:opacity-40",
-        checked
-          ? "border-primary bg-primary"
-          : "border-input bg-muted",
+        checked ? "border-primary bg-primary" : "border-input bg-muted",
       )}
     >
       <span

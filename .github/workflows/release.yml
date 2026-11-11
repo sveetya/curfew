@@ -14,24 +14,35 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: pnpm/action-setup@v4
+
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
-          cache: npm
+          node-version: 26
+          cache: pnpm
 
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
 
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: ". -> target"
 
       - name: Install frontend dependencies
-        run: npm ci
+        run: pnpm install --frozen-lockfile
 
-      - name: Typecheck and unit tests
-        run: |
-          npx tsc -p tsconfig.json --noEmit
-          npx vitest run
+      - name: Lint and format check (Biome)
+        run: pnpm lint
+
+      - name: Typecheck (TypeScript 7)
+        run: pnpm exec tsc -p tsconfig.json --noEmit
+
+      - name: Frontend tests
+        run: pnpm test
+
+      - name: Clippy
+        run: cargo clippy -p curfew-core --all-targets -- -D warnings
 
       - name: Core tests
         run: cargo test -p curfew-core

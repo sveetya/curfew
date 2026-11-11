@@ -1,14 +1,21 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { api, isTauri } from "@/lib/bridge";
-import { clock, percentLeft, parseHHmm } from "@/lib/format";
-import { scheduleDiffers } from "@/lib/config";
-import { borrowedTotal, parseLog } from "@/lib/log";
-import type { CurfewConfig, CurfewState, LogSummary } from "@/lib/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle, cn } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+  cn,
+} from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
-import { TBody, TD, TH, THead, TR, Table } from "@/components/ui/table";
+import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
+import { api, isTauri } from "@/lib/bridge";
+import { scheduleDiffers } from "@/lib/config";
+import { clock, parseHHmm, percentLeft } from "@/lib/format";
+import { borrowedTotal, parseLog } from "@/lib/log";
+import type { CurfewConfig, CurfewState, LogSummary } from "@/lib/types";
 
 type View = "night" | "history" | "settings" | "updates";
 
@@ -51,7 +58,11 @@ export function Console() {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [version, setVersion] = useState("0.1.0");
-  const [update, setUpdate] = useState<{ available: boolean; version: string; notes: string } | null>(null);
+  const [update, setUpdate] = useState<{
+    available: boolean;
+    version: string;
+    notes: string;
+  } | null>(null);
   const [updateBusy, setUpdateBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
 
@@ -65,8 +76,14 @@ export function Console() {
 
   useEffect(() => {
     void refresh();
-    void api.readLog().then(setLogText).catch(() => setLogText(""));
-    void api.getVersion().then(setVersion).catch(() => setVersion("unknown"));
+    void api
+      .readLog()
+      .then(setLogText)
+      .catch(() => setLogText(""));
+    void api
+      .getVersion()
+      .then(setVersion)
+      .catch(() => setVersion("unknown"));
     void api.getConfig().then((next) => {
       setConfig(next);
       setDraft(next);
@@ -109,11 +126,7 @@ export function Console() {
 
   const openCard = async () => {
     if (!isTauri) {
-      window.open(
-        "/index.html?phase=work",
-        "curfew-card",
-        "width=380,height=300,popup=yes",
-      );
+      window.open("/index.html?phase=work", "curfew-card", "width=380,height=300,popup=yes");
       return;
     }
     const { invoke } = await import("@tauri-apps/api/core");
@@ -289,9 +302,7 @@ export function Console() {
                 <CardHeader className="flex-row items-center justify-between p-5">
                   <div>
                     <CardTitle>This week</CardTitle>
-                    <CardDescription>
-                      Parsed from the audit log beside the script.
-                    </CardDescription>
+                    <CardDescription>Parsed from the audit log beside the script.</CardDescription>
                   </div>
                   <Badge tone="neutral">{rows.length} runs</Badge>
                 </CardHeader>
@@ -316,7 +327,9 @@ export function Console() {
                         <TR key={row.raw}>
                           <TD className="font-mono text-xs">{row.date}</TD>
                           <TD className="font-mono text-xs text-muted-foreground">{row.start}</TD>
-                          <TD className="font-mono text-xs text-muted-foreground">{row.deadline}</TD>
+                          <TD className="font-mono text-xs text-muted-foreground">
+                            {row.deadline}
+                          </TD>
                           <TD>
                             <span
                               className={cn(
@@ -328,7 +341,15 @@ export function Console() {
                             </span>
                           </TD>
                           <TD>
-                            <Badge tone={row.released ? "warn" : row.outcome === "shutdown" ? "ok" : "neutral"}>
+                            <Badge
+                              tone={
+                                row.released
+                                  ? "warn"
+                                  : row.outcome === "shutdown"
+                                    ? "ok"
+                                    : "neutral"
+                              }
+                            >
                               {row.released ? "released" : row.outcome}
                             </Badge>
                           </TD>
@@ -345,11 +366,7 @@ export function Console() {
             <>
               <div className="grid grid-cols-3 gap-3">
                 <Stat label="Runs" value={String(rows.length)} hint="all nights on record" />
-                <Stat
-                  label="Borrowed"
-                  value={String(borrowedTotal(rows))}
-                  hint="grace windows"
-                />
+                <Stat label="Borrowed" value={String(borrowedTotal(rows))} hint="grace windows" />
                 <Stat
                   label="Released"
                   value={String(rows.filter((row) => row.released).length)}
@@ -381,7 +398,9 @@ export function Console() {
                         <TR key={row.raw}>
                           <TD className="font-mono text-xs">{row.date}</TD>
                           <TD className="font-mono text-xs text-muted-foreground">{row.start}</TD>
-                          <TD className="font-mono text-xs text-muted-foreground">{row.deadline}</TD>
+                          <TD className="font-mono text-xs text-muted-foreground">
+                            {row.deadline}
+                          </TD>
                           <TD className="font-mono text-xs text-muted-foreground">{row.grace}</TD>
                           <TD className="font-mono text-xs">{row.borrows}</TD>
                           <TD>
@@ -394,8 +413,8 @@ export function Console() {
                     </TBody>
                   </Table>
                   <p className="mt-3 text-[11px] text-muted-foreground">
-                    One SUMMARY line per run. A high borrow count is the number worth watching,
-                    not a single one.
+                    One SUMMARY line per run. A high borrow count is the number worth watching, not
+                    a single one.
                   </p>
                 </CardContent>
               </Card>
@@ -407,8 +426,8 @@ export function Console() {
               <CardHeader className="p-5">
                 <CardTitle>Schedule</CardTitle>
                 <CardDescription>
-                  Saved to config.json and applied to the Curfew task immediately. Moving the
-                  clock needs the release key; the switches do not.
+                  Saved to config.json and applied to the Curfew task immediately. Moving the clock
+                  needs the release key; the switches do not.
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-5 p-5 pt-0">
@@ -458,9 +477,21 @@ export function Console() {
                 <div className="divide-y divide-border/70 rounded-[var(--radius-md)] border border-border/70">
                   {(
                     [
-                      ["batteryAllowed", "Run on battery", "A laptop that unplugs escapes a curfew that needs mains."],
-                      ["wakeToRun", "Wake the machine", "The task brings the laptop out of sleep to draw the card."],
-                      ["autostartConsole", "Open console at login", "Tray countdown, close to tray, no taskbar button."],
+                      [
+                        "batteryAllowed",
+                        "Run on battery",
+                        "A laptop that unplugs escapes a curfew that needs mains.",
+                      ],
+                      [
+                        "wakeToRun",
+                        "Wake the machine",
+                        "The task brings the laptop out of sleep to draw the card.",
+                      ],
+                      [
+                        "autostartConsole",
+                        "Open console at login",
+                        "Tray countdown, close to tray, no taskbar button.",
+                      ],
                     ] as const
                   ).map(([key, label, hint]) => (
                     <div key={key} className="flex items-center justify-between gap-6 px-4 py-3.5">
@@ -490,6 +521,7 @@ export function Console() {
                     </p>
                     <div className="flex gap-2">
                       <input
+                        // biome-ignore lint/a11y/noAutofocus: the prompt exists to be typed into
                         autoFocus
                         type="password"
                         value={key}

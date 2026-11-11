@@ -101,27 +101,40 @@ night.
 
 ## Develop
 
+Node **26** is pinned three ways: `engines` in `package.json`, `.nvmrc` and
+`.node-version`. Dependencies are installed with **pnpm** — the version is pinned
+by `packageManager`, so `pnpm` self-selects it.
+
 ```bash
-npm install
-npm run dev          # http://127.0.0.1:1420/index.html and /console.html
-npm run tauri dev    # the real Windows app
+pnpm install
+pnpm dev             # http://127.0.0.1:1420/index.html and /console.html
+pnpm tauri dev       # the real Windows app
 ```
 
 ## Verify
 
 ```bash
-npx tsc -p tsconfig.json --noEmit
-npx vitest run                 # 20 tests: clock formatting, log parsing
-cargo test -p curfew-core      # 26 tests: state machine, schtasks args, audit
-npm run build
+pnpm check                      # biome + tsc + vitest, the same order CI runs
+pnpm lint                       # Biome: lint and format check
+pnpm lint:fix                   # Biome: apply safe fixes
+pnpm exec tsc -p tsconfig.json --noEmit   # TypeScript 7.0.2, pinned
+pnpm test                       # 25 tests: clock formatting, log parsing, schedule gating
+pnpm rust:test                  # clippy -D warnings + 26 core tests
+cargo clippy -p curfew-core --all-targets -- -D warnings
+pnpm build
 ```
+
+Biome is the formatter and linter for everything under `src/` plus the root
+configs; Tailwind's at-rules are enabled explicitly in `biome.json` so
+`theme.css` is checked rather than skipped.
 
 ## Release
 
-Push a tag; CI on `windows-latest` runs the tests, builds, signs and publishes:
+Push a tag; CI on `windows-latest` runs the same gates, then builds, signs and
+publishes:
 
 ```bash
-git tag v0.1.0 && git push origin v0.1.0
+git tag v0.1.2 && git push origin v0.1.2
 ```
 
 Secrets the workflow needs:
