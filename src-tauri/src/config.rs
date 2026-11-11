@@ -26,6 +26,10 @@ pub struct Config {
     /// it to a synced folder is what lets the coach read nights from elsewhere.
     #[serde(default)]
     pub log_dir: String,
+    /// App version that last wrote the scheduled task. A new build re-arms, so
+    /// an update cannot leave last month's task pointing at a stale binary.
+    #[serde(default)]
+    pub task_version: String,
 }
 
 impl Default for Config {
@@ -38,6 +42,7 @@ impl Default for Config {
             wake_to_run: true,
             autostart_console: false,
             log_dir: String::new(),
+            task_version: String::new(),
         }
     }
 }

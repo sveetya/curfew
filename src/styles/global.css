@@ -9,6 +9,29 @@
   font-display: block;
 }
 
+/* ---------------------------------------------------------------------------
+   One type scale, five steps. Everything in the app picks one of these.
+   --------------------------------------------------------------------------- */
+@theme {
+  --text-xs: 11px;
+  --text-xs--line-height: 1.35;
+  --text-sm: 13px;
+  --text-sm--line-height: 1.5;
+  --text-base: 15px;
+  --text-base--line-height: 1.55;
+  --text-lg: 20px;
+  --text-lg--line-height: 1.3;
+  --text-display: 44px;
+  --text-display--line-height: 1;
+}
+
+/* Two new roles the theme never had: blue that is safe as text, and a success
+   hue that belongs to the palette instead of being borrowed from Tailwind. */
+@theme inline {
+  --color-primary-ink: var(--primary-ink);
+  --color-success: var(--success);
+}
+
 @layer base {
   /* The theme's `@theme inline` block re-declares these as
      `--font-sans: var(--font-sans)`, which is self-referential and therefore
@@ -19,6 +42,23 @@
     --font-mono:
       ui-monospace, "SFMono-Regular", "JetBrains Mono", Menlo, Consolas, "Liberation Mono",
       monospace;
+    --primary-ink: oklch(0.52 0.16 255.7);
+    --success: oklch(0.55 0.13 158);
+  }
+
+  /* Surface system. The theme mixed a blue-tinted ground (#030712) with pure
+     neutral card/border tokens (#171717 / #282828); these share the ground's
+     cast so the layering reads as one material. Radius drops from 2rem to a
+     tool scale: 10 / 12 / 14 / 18 through the theme's own calc(). */
+  .dark {
+    --card: oklch(0.185 0.02 262);
+    --popover: oklch(0.205 0.02 262);
+    --muted: oklch(0.235 0.018 262);
+    --border: oklch(0.285 0.022 262);
+    --input: oklch(0.305 0.022 262);
+    --radius: 0.875rem;
+    --primary-ink: oklch(0.72 0.14 255.73);
+    --success: oklch(0.75 0.13 158);
   }
 
   html,
@@ -34,6 +74,8 @@
 
   body {
     font-family: var(--font-sans);
+    font-size: 15px;
+    line-height: 1.5;
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
     overflow: hidden;
@@ -51,7 +93,7 @@
   }
 
   :focus-visible {
-    outline: 2px solid var(--ring);
+    outline: 2px solid var(--primary-ink);
     outline-offset: 2px;
   }
 

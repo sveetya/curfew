@@ -51,10 +51,14 @@ export const api = {
   },
 
   getVersion: async (): Promise<string> => {
-    if (!isTauri) return "0.1.4-preview";
+    if (!isTauri) return "0.2.0-preview";
     const { getVersion } = await import("@tauri-apps/api/app");
     return getVersion();
   },
+
+  /** Install or refresh the nightly task; true when it actually did work. */
+  ensureScheduled: (): Promise<boolean> =>
+    isTauri ? invoke<boolean>("ensure_scheduled") : mock.ensureScheduled(),
 
   installUpdate: async (): Promise<boolean> => {
     if (!isTauri) return mock.installUpdate();

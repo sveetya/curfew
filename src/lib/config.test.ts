@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { scheduleDiffers } from "./config";
+import { scheduleDiffers, windowSentence } from "./config";
 import type { CurfewConfig } from "./types";
 
 const saved: CurfewConfig = {
@@ -40,5 +40,29 @@ describe("scheduleDiffers", () => {
         saved,
       ),
     ).toBe(false);
+  });
+});
+
+describe("windowSentence", () => {
+  it("carves grace out of the window", () => {
+    expect(windowSentence(saved)).toBe(
+      "Countdown 25 min, then grace 5 min. Shutdown at 22:00, no cancel.",
+    );
+  });
+
+  it("handles a window that crosses midnight", () => {
+    expect(windowSentence({ ...saved, start: "23:30", deadline: "00:30" })).toContain(
+      "Countdown 55 min",
+    );
+  });
+
+  it("says so when the times are unreadable", () => {
+    expect(windowSentence({ ...saved, start: "9:5" })).toBe("Set a card time and a shutdown time.");
+  });
+
+  it("says so when both times are the same", () => {
+    expect(windowSentence({ ...saved, start: "22:00" })).toContain(
+      "The card and the shutdown are the same moment.",
+    );
   });
 });

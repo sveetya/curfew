@@ -14,8 +14,9 @@ kind of audit log, so an old log still parses in the console.
 ## Install (Windows)
 
 Download the `.exe` from [Releases](https://github.com/sveetya/curfew/releases),
-run it, and the console opens. The nightly task is created on the first save in
-Settings. The card appears by itself at 21:30.
+run it, and the console opens. The first launch arms the nightly task itself (and
+re-arms it after every update), so the card appears at 21:30 without you touching
+Settings.
 
 After that, updates install themselves: the app checks the signed
 `latest.json` manifest on launch and offers the new build. The repo has to stay

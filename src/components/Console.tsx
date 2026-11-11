@@ -1,221 +1,102 @@
-import {
-  IconAlarm,
-  IconHistory,
-  IconLoader2,
-  IconMoonOff,
-  IconMoonStars,
-  IconRefresh,
-  IconSettings,
-  IconShieldCheck,
-} from "@tabler/icons-react";
+import { IconArrowRight, IconCheck, IconLock } from "@tabler/icons-react";
 import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
+import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-  cn,
-} from "@/components/ui/card";
+import { cn } from "@/components/ui/card";
+import { Toaster } from "@/components/ui/sonner";
 import { Switch } from "@/components/ui/switch";
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
 import { api, isTauri } from "@/lib/bridge";
-import { scheduleDiffers } from "@/lib/config";
+import { scheduleDiffers, windowSentence } from "@/lib/config";
+import { humanError } from "@/lib/errors";
 import { clock, parseHHmm, percentLeft } from "@/lib/format";
 import { borrowedTotal, parseLog } from "@/lib/log";
 import type { CurfewConfig, CurfewState, LogSummary } from "@/lib/types";
+import { useConfirm } from "@/lib/use-confirm";
 
 type View = "night" | "history" | "settings";
 
-const NAV = [
-  { id: "night", label: "Tonight", Icon: IconMoonStars },
-  { id: "history", label: "History", Icon: IconHistory },
-  { id: "settings", label: "Settings", Icon: IconSettings },
-] as const;
+const PANES: Array<{ id: View; label: string }> = [
+  { id: "night", label: "Tonight" },
+  { id: "history", label: "History" },
+  { id: "settings", label: "Settings" },
+];
 
-const TITLES: Record<View, { title: string; hint: string }> = {
-  night: { title: "Tonight", hint: "Countdown, deadline, and what happened last night." },
-  history: { title: "History", hint: "Every run from the audit log, newest first." },
-  settings: { title: "Settings", hint: "The schedule, the log, and the build." },
-};
-
-function Stat({ label, value, hint }: { label: string; value: string; hint?: string }) {
-  return (
-    <div className="rounded-[var(--radius-md)] border border-border/70 bg-background/30 px-4 py-3">
-      <div className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground">{label}</div>
-      <div className="tabular mt-1 font-mono text-lg leading-none">{value}</div>
-      {hint && <div className="mt-1.5 text-[11px] text-muted-foreground">{hint}</div>}
-    </div>
-  );
-}
-
-function EmptyRow({ children, colSpan = 5 }: { children: string; colSpan?: number }) {
-  return (
-    <TR>
-      <TD className="text-muted-foreground" colSpan={colSpan}>
-        {children}
-      </TD>
-    </TR>
-  );
-}
-
-/** The one always-visible answer to "is it on?". */
-function StatusPanel({ state, start }: { state: CurfewState | null; start?: string }) {
-  const phase = state?.phase ?? "work";
-  const tone = {
-    work: {
-      Icon: IconShieldCheck,
-      chip: "bg-emerald-500/12 text-emerald-400",
-      bar: "bg-emerald-400/70",
-      label: "Armed",
-    },
-    grace: {
-      Icon: IconAlarm,
-      chip: "bg-secondary/15 text-secondary",
-      bar: "bg-secondary",
-      label: "Finish up",
-    },
-    expired: {
-      Icon: IconMoonOff,
-      chip: "bg-muted text-muted-foreground",
-      bar: "bg-muted-foreground",
-      label: "Down",
-    },
-  }[phase];
-
-  const elapsed = state
-    ? Math.min(100, Math.max(0, 100 - percentLeft(state.remainingSeconds, state.totalSeconds)))
-    : 0;
+function DeathClock({ state, start }: { state: CurfewState | null; start?: string }) {
+  const grace = state?.phase === "grace";
+  const seconds = grace ? (state?.graceRemainingSeconds ?? 0) : (state?.remainingSeconds ?? 0);
+  const pct = percentLeft(seconds, grace ? (state?.graceSeconds ?? 1) : (state?.totalSeconds ?? 1));
 
   return (
-    <div className="rounded-[var(--radius-md)] border border-border/60 bg-sidebar-accent/40 p-3">
-      <div className="flex items-center gap-2.5">
-        <span className={cn("grid size-7 shrink-0 place-items-center rounded-full", tone.chip)}>
-          <tone.Icon size={15} stroke={1.9} />
-        </span>
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-1.5">
-            <span className="text-[12px] font-medium leading-none" role="status" aria-live="polite">
-              {tone.label}
-            </span>
-            <span className={cn("size-1.5 rounded-full", tone.bar)} />
-          </div>
-          <div className="mt-1 truncate font-mono text-[10px] text-muted-foreground">
-            {start ? `${start} → ${state?.deadlineLabel ?? "—"}` : "schedule unset"}
-          </div>
+    <div>
+      <div className="flex items-baseline gap-3">
+        <div
+          className={cn(
+            "tabular font-mono text-display font-medium tracking-tight",
+            grace ? "text-secondary" : "text-foreground",
+          )}
+        >
+          {state?.released ? "off" : clock(seconds)}
+        </div>
+        <div className="text-sm text-muted-foreground">
+          {grace ? "grace ends at" : "until"} {state?.deadlineLabel ?? "—"}
         </div>
       </div>
-      <div className="mt-2.5 h-1 overflow-hidden rounded-full bg-border/70">
+
+      <div className="mt-7 h-0.5 w-full rounded-full bg-white/8">
         <div
-          className={cn("h-full rounded-full transition-[width] duration-500", tone.bar)}
-          style={{ width: `${elapsed}%` }}
+          className={cn("h-full rounded-full", grace ? "bg-secondary" : "bg-primary-ink")}
+          style={{ width: `${pct}%` }}
         />
       </div>
-    </div>
-  );
-}
-
-function Field({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
-  return (
-    <div className="space-y-1.5">
-      <div className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground">{label}</div>
-      {children}
-      {hint && <div className="text-[11px] leading-relaxed text-muted-foreground">{hint}</div>}
-    </div>
-  );
-}
-
-function Row({
-  title,
-  hint,
-  children,
-}: {
-  title: string;
-  hint?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="flex items-center justify-between gap-6 px-4 py-3.5">
-      <div>
-        <div className="text-[13px]">{title}</div>
-        {hint && <div className="text-[11px] text-muted-foreground">{hint}</div>}
+      <div className="mt-2 flex justify-between text-xs text-muted-foreground">
+        <span className="tabular">{start ?? "—"}</span>
+        <span className="tabular">{state?.deadlineLabel ?? "—"}</span>
       </div>
-      {children}
     </div>
   );
 }
 
-type UpdateStatus = "idle" | "checking" | "current" | "available" | "error";
-
-function UpdateRow({
-  version,
-  status,
-  updateVersion,
-  notes,
-  onCheck,
-  onInstall,
-}: {
-  version: string;
-  status: UpdateStatus;
-  updateVersion: string;
-  notes: string;
-  onCheck: () => void;
-  onInstall: () => void;
-}) {
-  const available = status === "available";
-  const subtitle = {
-    idle: "Signed manifest, checked on demand.",
-    checking: "Checking the signed manifest…",
-    current: "Up to date. The manifest is signed.",
-    available: `Version ${updateVersion} is ready to install.`,
-    error: "Could not reach the manifest. Check back later.",
-  }[status];
-
+function Vitals({ state }: { state: CurfewState | null }) {
+  const items = [
+    { k: "Deadline", v: state?.deadlineLabel ?? "—" },
+    { k: "Grace", v: `${state?.graceMinutes ?? 0} min` },
+    { k: "Borrowed", v: String(state?.borrows ?? 0) },
+    { k: "Owed", v: `${state?.owedMinutes ?? 0} min` },
+  ];
   return (
-    <div className="rounded-[var(--radius-md)] border border-border/70 px-4 py-3">
-      <div className="flex items-center justify-between gap-4">
-        <div className="flex min-w-0 items-center gap-3">
-          <span
-            className={cn(
-              "grid size-8 shrink-0 place-items-center rounded-full",
-              available ? "bg-primary/15 text-primary" : "bg-muted/60 text-muted-foreground",
-            )}
-          >
-            <IconRefresh size={15} stroke={1.9} />
-          </span>
-          <div className="min-w-0">
-            <div className="text-[13px]">Curfew {version}</div>
-            <div className="truncate text-[11px] text-muted-foreground">{subtitle}</div>
-          </div>
-        </div>
-        <Button
-          variant={available ? "primary" : "outline"}
-          size="sm"
-          disabled={status === "checking"}
-          onClick={available ? onInstall : onCheck}
-        >
-          {status === "checking" ? (
-            <span className="flex items-center gap-1.5">
-              <IconLoader2 size={13} className="animate-spin" />
-              Checking
-            </span>
-          ) : available ? (
-            `Install ${updateVersion}`
-          ) : (
-            "Check for updates"
+    <div className="flex">
+      {items.map((item, index) => (
+        <div
+          key={item.k}
+          className={cn(
+            "flex-1",
+            index > 0 && "border-l border-white/8 pl-5",
+            index === 0 && "pr-5",
           )}
-        </Button>
-      </div>
-      {available && notes && (
-        <p className="mt-2.5 border-t border-border/60 pt-2.5 text-[11px] leading-relaxed text-muted-foreground">
-          {notes}
-        </p>
-      )}
+        >
+          <div className="text-xs text-muted-foreground">{item.k}</div>
+          <div className="tabular mt-1 text-base font-medium">{item.v}</div>
+        </div>
+      ))}
     </div>
   );
 }
+
+function Group({ title, hint, children }: { title: string; hint?: string; children: ReactNode }) {
+  return (
+    <section className="mt-5 border-t border-white/8 pt-5 first:mt-0 first:border-t-0 first:pt-0">
+      <h2 className="text-sm font-semibold tracking-tight">{title}</h2>
+      {hint && <p className="mt-0.5 text-xs text-muted-foreground">{hint}</p>}
+      <div className="mt-4">{children}</div>
+    </section>
+  );
+}
+
+const inputClass =
+  "h-[34px] w-full rounded-[var(--radius-sm)] border border-input bg-white/2 px-2.5 text-sm tabular " +
+  "text-foreground placeholder:text-muted-foreground/60 focus-visible:border-primary-ink";
 
 export function Console() {
   const [view, setView] = useState<View>("night");
@@ -223,25 +104,17 @@ export function Console() {
   const [logText, setLogText] = useState("");
   const [config, setConfig] = useState<CurfewConfig | null>(null);
   const [draft, setDraft] = useState<CurfewConfig | null>(null);
-  const [saved, setSaved] = useState(false);
-  const [asking, setAsking] = useState(false);
   const [key, setKey] = useState("");
-  const [saveError, setSaveError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [version, setVersion] = useState("—");
-  const [status, setStatus] = useState<UpdateStatus>("idle");
-  const [update, setUpdate] = useState<{ available: boolean; version: string; notes: string }>({
-    available: false,
-    version: "",
-    notes: "",
-  });
-  const [note, setNote] = useState<string | null>(null);
+  const [borrowsOnly, setBorrowsOnly] = useState(false);
+  const shutdown = useConfirm(3);
 
   const refresh = useCallback(async () => {
     try {
       setState(await api.getState());
     } catch (error) {
-      setNote(String(error));
+      toast.error(humanError(error));
     }
   }, []);
 
@@ -263,501 +136,546 @@ export function Console() {
     return () => window.clearInterval(interval);
   }, [refresh]);
 
-  const rows: LogSummary[] = useMemo(() => parseLog(logText), [logText]);
-  const scheduleMoves = draft && config ? scheduleDiffers(draft, config) : false;
+  // First run and every upgrade: make sure tonight is actually scheduled.
+  useEffect(() => {
+    let cancelled = false;
+    void api
+      .ensureScheduled()
+      .then((installed) => {
+        if (!installed || cancelled) return;
+        void api.getConfig().then((loaded) => {
+          toast.success("Armed for tonight", {
+            description: `Card at ${loaded.start}, shutdown at ${loaded.deadline}.`,
+          });
+        });
+      })
+      .catch((error) => toast.error(humanError(error)));
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
-  const commit = async (withKey?: string) => {
-    if (!draft) return;
+  // Check once in the background; the offer carries its own button.
+  useEffect(() => {
+    let cancelled = false;
+    void api
+      .checkUpdate()
+      .then((update) => {
+        if (!update.available || cancelled) return;
+        toast(`Curfew ${update.version} is ready`, {
+          description: update.notes || "Signed build from GitHub.",
+          duration: Number.POSITIVE_INFINITY,
+          action: {
+            label: "Install",
+            onClick: () => {
+              const id = toast.loading("Downloading and verifying…");
+              void api
+                .installUpdate()
+                .then(() => toast.success("Installing", { id, description: "Curfew restarts." }))
+                .catch((error) => toast.error(humanError(error), { id }));
+            },
+          },
+        });
+      })
+      .catch(() => {
+        /* a background check that fails is not worth interrupting anyone */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const rows: LogSummary[] = useMemo(() => parseLog(logText), [logText]);
+  const shown = borrowsOnly ? rows.filter((row) => row.borrows > 0) : rows;
+
+  const errors = useMemo(() => {
+    const out: Record<string, string> = {};
+    if (!draft) return out;
+    const start = parseHHmm(draft.start);
+    const deadline = parseHHmm(draft.deadline);
+    if (start === null) out.start = "Use a 24h time, like 21:30.";
+    if (deadline === null) out.deadline = "Use a 24h time, like 22:00.";
+    if (start !== null && deadline !== null && start >= deadline)
+      out.start = "The card has to open before the shutdown.";
+    if (draft.graceMinutes < 0 || draft.graceMinutes > 120)
+      out.graceMinutes = "Grace is 0–120 minutes.";
+    return out;
+  }, [draft]);
+
+  const blocked = Object.keys(errors).length > 0;
+  const movesClock = draft && config ? scheduleDiffers(draft, config) : false;
+  const movesAnything =
+    movesClock ||
+    (config &&
+      draft &&
+      (config.batteryAllowed !== draft.batteryAllowed ||
+        config.wakeToRun !== draft.wakeToRun ||
+        config.autostartConsole !== draft.autostartConsole ||
+        config.logDir !== draft.logDir));
+
+  const save = async () => {
+    if (!draft || blocked) return;
     setSaving(true);
     try {
-      const next = await api.setConfig(draft, withKey);
+      const next = await api.setConfig(draft, movesClock ? key : undefined);
       setConfig(next);
       setDraft(next);
-      setAsking(false);
       setKey("");
-      setSaveError(null);
-      setSaved(true);
-      window.setTimeout(() => setSaved(false), 1600);
+      toast.success(movesClock ? "Schedule saved" : "Settings saved", {
+        description: movesClock
+          ? `Card ${next.start} · shutdown ${next.deadline}.`
+          : "Applied to the app and the task.",
+      });
     } catch (error) {
-      setSaveError(String(error).replace(/^.*Error:\s*/, ""));
+      toast.error("Could not save", { description: humanError(error) });
     } finally {
       setSaving(false);
     }
   };
 
-  const save = async () => {
-    if (scheduleMoves) {
-      setAsking(true);
-      setSaveError(null);
-      return;
-    }
-    await commit();
-  };
-
-  const checkUpdates = async () => {
-    setStatus("checking");
-    try {
-      const result = await api.checkUpdate();
-      setUpdate(result);
-      setStatus(result.available ? "available" : "current");
-    } catch (error) {
-      setNote(String(error));
-      setStatus("error");
-    }
-  };
-
-  const installUpdate = async () => {
-    setStatus("checking");
-    try {
-      await api.installUpdate();
-    } catch (error) {
-      setNote(String(error));
-      setStatus("error");
-    }
-  };
-
   const openCard = async () => {
     if (!isTauri) {
-      window.open("/index.html?phase=work", "curfew-card", "width=380,height=300,popup=yes");
+      window.open("/index.html?phase=work", "curfew-card", "width=380,height=248,popup=yes");
       return;
     }
     const { invoke } = await import("@tauri-apps/api/core");
     await invoke("open_card", { minutes: 2, dryRun: true });
+    toast.info("Test card opened", { description: "Two minutes. Nothing is enforced." });
+  };
+
+  const wait = async () => {
+    try {
+      const next = await api.waitTen();
+      setState(next);
+      if (next.borrows > 0) {
+        toast.warning("Grace borrowed", {
+          description: `Shutdown now ${next.deadlineLabel}. ${next.owedMinutes} min earlier start tomorrow.`,
+        });
+      } else {
+        toast.success("Deadline moved", { description: `Shutdown now ${next.deadlineLabel}.` });
+      }
+    } catch (error) {
+      toast.error(humanError(error));
+    }
+  };
+
+  const shutDown = async () => {
+    try {
+      await api.shutdownNow();
+    } catch (error) {
+      toast.error(humanError(error));
+    }
   };
 
   return (
-    <div className="flex h-full bg-background text-foreground">
-      <aside className="flex w-[224px] shrink-0 flex-col border-r border-sidebar-border bg-sidebar px-3 py-4">
-        <nav className="flex flex-col gap-0.5">
-          {NAV.map(({ id, label, Icon }) => {
-            const active = view === id;
-            return (
-              <button
-                key={id}
-                type="button"
-                onClick={() => setView(id)}
-                aria-current={active ? "page" : undefined}
-                className={cn(
-                  "group flex h-9 items-center gap-2.5 rounded-full px-3 text-left text-[13px] transition-colors",
-                  active
-                    ? "bg-sidebar-accent font-medium text-sidebar-accent-foreground"
-                    : "text-muted-foreground hover:bg-sidebar-accent/50 hover:text-sidebar-accent-foreground",
-                )}
-              >
-                <Icon
-                  size={16}
-                  stroke={1.9}
-                  className={cn(
-                    "shrink-0 transition-colors",
-                    active ? "text-primary" : "text-muted-foreground group-hover:text-foreground",
-                  )}
-                />
-                {label}
-              </button>
-            );
-          })}
+    <div className="relative flex h-full flex-col bg-background text-foreground">
+      <header className="flex h-12 shrink-0 items-center gap-4 border-b border-white/8 px-5">
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <span
+            className={cn(
+              "size-1.5 rounded-full",
+              state?.phase === "grace"
+                ? "bg-secondary"
+                : state?.phase === "expired"
+                  ? "bg-destructive"
+                  : "bg-success",
+            )}
+          />
+          <span role="status" aria-live="polite">
+            {state?.phase === "grace" ? (
+              "Finish up"
+            ) : state?.phase === "expired" ? (
+              "Down"
+            ) : (
+              <>
+                Armed <span className="text-foreground">until {state?.deadlineLabel ?? "—"}</span>
+              </>
+            )}
+          </span>
+        </div>
+
+        <nav className="mx-auto flex gap-0.5 rounded-[10px] bg-white/3 p-[3px]">
+          {PANES.map((pane) => (
+            <button
+              key={pane.id}
+              type="button"
+              onClick={() => setView(pane.id)}
+              aria-current={view === pane.id ? "page" : undefined}
+              className={cn(
+                "h-[26px] rounded-md px-3 text-sm transition-colors",
+                view === pane.id
+                  ? "bg-white/8 text-foreground"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              {pane.label}
+            </button>
+          ))}
         </nav>
 
-        <div className="mt-auto space-y-2">
-          <StatusPanel state={state} start={config?.start} />
-          {!isTauri && (
-            <div className="flex items-center gap-1.5 px-1 text-[10px] text-muted-foreground/80">
-              <span className="size-1 rounded-full bg-secondary" />
-              Preview — no Windows backend
-            </div>
-          )}
+        <div className="flex items-center gap-1">
+          <Button variant="outline" size="sm" onClick={() => void openCard()}>
+            Test card
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className={cn("text-muted-foreground", shutdown.armed && "text-destructive")}
+            onClick={() => shutdown.trigger(() => void shutDown())}
+          >
+            {shutdown.armed ? `Shut down in ${shutdown.left}…` : "Shut down…"}
+          </Button>
         </div>
-      </aside>
+      </header>
 
-      <main className="min-w-0 flex-1 overflow-y-auto">
-        <header className="sticky top-0 z-10 flex h-16 items-center justify-between border-b border-border bg-background/85 px-8 backdrop-blur">
-          <div>
-            <h1 className="text-sm font-semibold tracking-tight">{TITLES[view].title}</h1>
-            <p className="text-[11px] text-muted-foreground">{TITLES[view].hint}</p>
-          </div>
-          <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" onClick={() => void openCard()}>
-              Test card
-            </Button>
-            <Button
-              variant="destructive"
-              size="sm"
-              onClick={() => void api.shutdownNow().then(setState)}
-            >
-              Shut down now
-            </Button>
-          </div>
-        </header>
-
-        <div className="mx-auto max-w-[840px] space-y-5 px-8 py-7">
-          {note && (
-            <div className="rounded-[var(--radius-sm)] border border-destructive/40 bg-destructive/10 px-4 py-3 text-xs text-destructive">
-              {note}
-            </div>
-          )}
-
+      <main className="min-h-0 flex-1 overflow-y-auto">
+        <div className="mx-auto w-[640px] pb-28 pt-10">
           {view === "night" && (
-            <>
-              <Card>
-                <CardContent className="p-6">
-                  <div className="flex items-start justify-between gap-6">
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <span
-                          className={cn(
-                            "size-2 rounded-full",
-                            state?.phase === "grace" ? "bg-secondary" : "bg-primary",
-                          )}
-                        />
-                        <span className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
-                          {state?.phase === "grace" ? "finish up" : "night curfew"}
-                        </span>
-                      </div>
-                      <div
-                        className={cn(
-                          "tabular mt-2 font-mono text-[56px] font-semibold leading-none tracking-tight",
-                          state?.phase === "grace" && "text-secondary",
-                        )}
-                      >
-                        {state
-                          ? clock(
-                              state.phase === "grace"
-                                ? state.graceRemainingSeconds
-                                : state.remainingSeconds,
-                            )
-                          : "—:—"}
-                      </div>
-                      <p className="mt-2 text-xs text-muted-foreground">
-                        {state?.phase === "grace"
-                          ? "Grace is running. Save, commit, close."
-                          : `Windows goes down at ${state?.deadlineLabel ?? "22:00"}. No cancel button.`}
-                      </p>
-                    </div>
+            <div className="space-y-10">
+              <DeathClock state={state} start={config?.start} />
+              <Vitals state={state} />
 
-                    <div className="grid w-[280px] shrink-0 grid-cols-2 gap-2">
-                      <Stat label="Deadline" value={state?.deadlineLabel ?? "—"} hint="shutdown" />
-                      <Stat
-                        label="Grace"
-                        value={`${state?.graceMinutes ?? 0} min`}
-                        hint="carved out"
-                      />
-                      <Stat
-                        label="Borrowed"
-                        value={String(state?.borrows ?? 0)}
-                        hint="windows tonight"
-                      />
-                      <Stat
-                        label="Owed"
-                        value={`${state?.owedMinutes ?? 0} min`}
-                        hint="earlier start"
-                      />
-                    </div>
-                  </div>
+              <div className="flex items-baseline gap-3 border-t border-white/8 pt-4 text-sm text-muted-foreground">
+                <span className="w-20 text-xs">Last night</span>
+                {rows[0] ? (
+                  <span className="tabular">
+                    {rows[0].start} · {rows[0].outcome} · {rows[0].borrows} borrows
+                  </span>
+                ) : (
+                  <span>No nights on record yet.</span>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setView("history")}
+                  className="ml-auto inline-flex items-center gap-1 text-primary-ink hover:underline"
+                >
+                  History <IconArrowRight size={13} />
+                </button>
+              </div>
 
-                  <div className="mt-5 h-1.5 overflow-hidden rounded-full bg-muted">
-                    <div
-                      className="h-full rounded-full bg-primary"
-                      style={{
-                        width: `${percentLeft(state?.remainingSeconds ?? 0, state?.totalSeconds ?? 1)}%`,
-                      }}
-                    />
-                  </div>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader className="flex-row items-center justify-between p-5">
-                  <div>
-                    <CardTitle>This week</CardTitle>
-                    <CardDescription>Parsed from the audit log.</CardDescription>
-                  </div>
-                  <Badge tone="neutral">{rows.length} runs</Badge>
-                </CardHeader>
-                <CardContent className="p-5 pt-0">
-                  <Table>
-                    <THead>
-                      <TR>
-                        <TH>Night</TH>
-                        <TH>Start</TH>
-                        <TH>Deadline</TH>
-                        <TH>Borrows</TH>
-                        <TH>Outcome</TH>
-                      </TR>
-                    </THead>
-                    <TBody>
-                      {rows.length === 0 && (
-                        <EmptyRow>
-                          No runs logged yet. The first night writes the first line.
-                        </EmptyRow>
-                      )}
-                      {rows.slice(0, 7).map((row) => (
-                        <TR key={row.raw}>
-                          <TD className="font-mono text-xs">{row.date}</TD>
-                          <TD className="font-mono text-xs text-muted-foreground">{row.start}</TD>
-                          <TD className="font-mono text-xs text-muted-foreground">
-                            {row.deadline}
-                          </TD>
-                          <TD>
-                            <span
-                              className={cn(
-                                "font-mono text-xs",
-                                row.borrows > 0 ? "text-secondary" : "text-muted-foreground",
-                              )}
-                            >
-                              {row.borrows}
-                            </span>
-                          </TD>
-                          <TD>
-                            <Badge
-                              tone={
-                                row.released
-                                  ? "warn"
-                                  : row.outcome === "shutdown"
-                                    ? "ok"
-                                    : "neutral"
-                              }
-                            >
-                              {row.released ? "released" : row.outcome}
-                            </Badge>
-                          </TD>
-                        </TR>
-                      ))}
-                    </TBody>
-                  </Table>
-                </CardContent>
-              </Card>
-            </>
+              <div className="flex items-center gap-2">
+                <Button variant="outline" size="sm" onClick={() => void wait()}>
+                  Wait 10 min
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className={cn(
+                    "ml-auto text-muted-foreground",
+                    shutdown.armed && "text-destructive",
+                  )}
+                  onClick={() => shutdown.trigger(() => void shutDown())}
+                >
+                  {shutdown.armed ? `Confirm shut down (${shutdown.left})` : "Shut down…"}
+                </Button>
+              </div>
+            </div>
           )}
 
           {view === "history" && (
-            <>
-              <div className="grid grid-cols-3 gap-3">
-                <Stat label="Runs" value={String(rows.length)} hint="all nights on record" />
-                <Stat label="Borrowed" value={String(borrowedTotal(rows))} hint="grace windows" />
-                <Stat
-                  label="Released"
-                  value={String(rows.filter((row) => row.released).length)}
-                  hint="times the key came out"
-                />
+            <div className="space-y-6">
+              <div className="flex">
+                {[
+                  { k: "Nights", v: String(rows.length) },
+                  { k: "Borrowed", v: String(borrowedTotal(rows)) },
+                  { k: "Released", v: String(rows.filter((r) => r.released).length) },
+                ].map((stat, index) => (
+                  <div
+                    key={stat.k}
+                    className={cn("flex-1", index > 0 && "border-l border-white/8 pl-5")}
+                  >
+                    <div className="text-xs text-muted-foreground">{stat.k}</div>
+                    <div className="tabular mt-1 text-lg font-medium">{stat.v}</div>
+                  </div>
+                ))}
               </div>
-              <Card>
-                <CardHeader className="p-5">
-                  <CardTitle>Audit log</CardTitle>
-                  <CardDescription className="font-mono text-[11px]">
-                    {state?.logPath ?? "log path unknown"}
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="p-5 pt-0">
-                  <Table>
-                    <THead>
-                      <TR>
-                        <TH>Night</TH>
-                        <TH>Start</TH>
-                        <TH>Deadline</TH>
-                        <TH>Grace</TH>
-                        <TH>Borrows</TH>
-                        <TH>Outcome</TH>
-                      </TR>
-                    </THead>
-                    <TBody>
-                      {rows.length === 0 && <EmptyRow>Nothing logged yet.</EmptyRow>}
-                      {rows.map((row) => (
-                        <TR key={row.raw}>
-                          <TD className="font-mono text-xs">{row.date}</TD>
-                          <TD className="font-mono text-xs text-muted-foreground">{row.start}</TD>
-                          <TD className="font-mono text-xs text-muted-foreground">
-                            {row.deadline}
-                          </TD>
-                          <TD className="font-mono text-xs text-muted-foreground">{row.grace}</TD>
-                          <TD className="font-mono text-xs">{row.borrows}</TD>
-                          <TD>
-                            <Badge tone={row.released ? "warn" : "ok"}>
-                              {row.released ? "released" : row.outcome}
-                            </Badge>
-                          </TD>
-                        </TR>
-                      ))}
-                    </TBody>
-                  </Table>
-                  <p className="mt-3 text-[11px] text-muted-foreground">
-                    One SUMMARY line per run. A high borrow count is the number worth watching, not
-                    a single one.
+
+              <div className="flex items-center gap-1">
+                {[
+                  { on: false, label: "All nights" },
+                  { on: true, label: "With borrows" },
+                ].map((filter) => (
+                  <button
+                    key={filter.label}
+                    type="button"
+                    onClick={() => setBorrowsOnly(filter.on)}
+                    className={cn(
+                      "h-7 rounded-full border px-3 text-xs transition-colors",
+                      borrowsOnly === filter.on
+                        ? "border-white/15 bg-white/8 text-foreground"
+                        : "border-transparent text-muted-foreground hover:text-foreground",
+                    )}
+                  >
+                    {filter.label}
+                  </button>
+                ))}
+              </div>
+
+              {shown.length === 0 ? (
+                <div className="rounded-[var(--radius-sm)] border border-dashed border-white/10 px-5 py-10 text-center">
+                  <p className="text-sm text-muted-foreground">
+                    {borrowsOnly
+                      ? "No night borrowed grace. Keep it that way."
+                      : "No nights on record yet. The first night writes the first line."}
                   </p>
-                </CardContent>
-              </Card>
-            </>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="mt-4"
+                    onClick={() => void openCard()}
+                  >
+                    Run a test card
+                  </Button>
+                </div>
+              ) : (
+                <Table>
+                  <THead>
+                    <TR>
+                      <TH>Night</TH>
+                      <TH>Start</TH>
+                      <TH>Deadline</TH>
+                      <TH>Borrows</TH>
+                      <TH>Outcome</TH>
+                    </TR>
+                  </THead>
+                  <TBody>
+                    {shown.map((row) => (
+                      <TR key={row.raw}>
+                        <TD className="tabular text-xs">{row.date}</TD>
+                        <TD className="tabular text-xs text-muted-foreground">{row.start}</TD>
+                        <TD className="tabular text-xs text-muted-foreground">{row.deadline}</TD>
+                        <TD>
+                          <span
+                            className={cn(
+                              "tabular text-xs",
+                              row.borrows > 0 ? "text-secondary" : "text-muted-foreground",
+                            )}
+                          >
+                            {row.borrows}
+                          </span>
+                        </TD>
+                        <TD>
+                          <Badge tone={row.released ? "warn" : "ok"}>
+                            {row.released ? "released" : row.outcome}
+                          </Badge>
+                        </TD>
+                      </TR>
+                    ))}
+                  </TBody>
+                </Table>
+              )}
+            </div>
           )}
 
           {view === "settings" && draft && (
-            <>
-              <Card>
-                <CardHeader className="p-5">
-                  <CardTitle>Schedule</CardTitle>
-                  <CardDescription>
-                    Applied to the Curfew task on save. Moving the clock needs the release key; the
-                    switches do not.
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-5 p-5 pt-0">
-                  <div className="grid grid-cols-3 gap-3">
-                    <Field label="Card opens">
+            <div>
+              <Group title="Schedule" hint="When the card appears and when Windows goes down.">
+                <div className="flex gap-3">
+                  {(
+                    [
+                      ["start", "Card opens", "time", errors.start],
+                      ["deadline", "Shutdown", "time", errors.deadline],
+                      ["graceMinutes", "Grace", "number", errors.graceMinutes],
+                    ] as const
+                  ).map(([field, label, type, message]) => (
+                    <div key={field} className="flex-1">
+                      <span className="mb-1.5 block text-xs text-muted-foreground">{label}</span>
                       <input
-                        type="time"
-                        value={draft.start}
-                        onChange={(event) => setDraft({ ...draft, start: event.target.value })}
-                        className="h-10 w-full rounded-[var(--radius-sm)] border border-input bg-input/30 px-3 font-mono text-sm"
-                      />
-                      {parseHHmm(draft.start) === null && (
-                        <span className="text-[11px] text-destructive">Use HH:mm</span>
-                      )}
-                    </Field>
-                    <Field label="Shutdown">
-                      <input
-                        type="time"
-                        value={draft.deadline}
-                        onChange={(event) => setDraft({ ...draft, deadline: event.target.value })}
-                        className="h-10 w-full rounded-[var(--radius-sm)] border border-input bg-input/30 px-3 font-mono text-sm"
-                      />
-                    </Field>
-                    <Field label="Grace">
-                      <input
-                        type="number"
-                        min={0}
-                        max={60}
-                        value={draft.graceMinutes}
+                        type={type}
+                        min={type === "number" ? 0 : undefined}
+                        max={type === "number" ? 120 : undefined}
+                        value={draft[field]}
                         onChange={(event) =>
-                          setDraft({ ...draft, graceMinutes: Number(event.target.value) })
+                          setDraft({
+                            ...draft,
+                            [field]:
+                              type === "number" ? Number(event.target.value) : event.target.value,
+                          })
                         }
-                        className="h-10 w-full rounded-[var(--radius-sm)] border border-input bg-input/30 px-3 font-mono text-sm"
+                        className={cn(inputClass, message && "border-destructive")}
                       />
-                    </Field>
-                  </div>
+                      {message && <p className="mt-1 text-xs text-destructive">{message}</p>}
+                    </div>
+                  ))}
+                </div>
 
-                  <div className="divide-y divide-border/70 rounded-[var(--radius-md)] border border-border/70">
-                    {(
+                <p className="mt-3 text-sm text-muted-foreground">{windowSentence(draft)}</p>
+
+                {movesClock && (
+                  <div className="mt-3 flex items-center gap-3 rounded-[var(--radius-sm)] border border-white/10 bg-white/3 px-3 py-2.5">
+                    <IconLock size={14} className="shrink-0 text-secondary" />
+                    <div className="min-w-0">
+                      <div className="text-sm font-medium text-secondary">
+                        The clock needs the release key
+                      </div>
+                      <div className="text-xs text-muted-foreground">
+                        Moving a time is the one edit the curfew exists to prevent.
+                      </div>
+                    </div>
+                    <input
+                      type="password"
+                      value={key}
+                      onChange={(event) => setKey(event.target.value)}
+                      placeholder="release key"
+                      aria-label="Release key"
+                      className="ml-auto h-7 w-40 rounded-md border border-white/12 bg-black/25 px-2.5 font-mono text-xs"
+                    />
+                  </div>
+                )}
+              </Group>
+
+              <Group title="Behaviour">
+                <div className="-mt-1">
+                  {(
+                    [
                       [
-                        [
-                          "batteryAllowed",
-                          "Run on battery",
-                          "A laptop that unplugs escapes a curfew that needs mains.",
-                        ],
-                        [
-                          "wakeToRun",
-                          "Wake the machine",
-                          "The task brings the laptop out of sleep to draw the card.",
-                        ],
-                        [
-                          "autostartConsole",
-                          "Open console at login",
-                          "Tray countdown, close to tray, no taskbar button.",
-                        ],
-                      ] as const
-                    ).map(([field, label, hint]) => (
-                      <Row key={field} title={label} hint={hint}>
+                        "batteryAllowed",
+                        "Run on battery",
+                        "A laptop that unplugs escapes a curfew that needs mains.",
+                      ],
+                      [
+                        "wakeToRun",
+                        "Wake the machine",
+                        "Brings the laptop out of sleep to draw the card.",
+                      ],
+                      [
+                        "autostartConsole",
+                        "Open console at login",
+                        "Tray countdown, close to tray, no taskbar button.",
+                      ],
+                    ] as const
+                  ).map(([field, title, hint]) => (
+                    <div
+                      key={field}
+                      className="flex items-center gap-4 border-t border-white/8 py-3 first:border-t-0"
+                    >
+                      <div>
+                        <div className="text-sm">{title}</div>
+                        <div className="text-xs text-muted-foreground">{hint}</div>
+                      </div>
+                      <div className="ml-auto">
                         <Switch
-                          label={label}
+                          label={title}
                           checked={draft[field]}
                           onChange={(next) => setDraft({ ...draft, [field]: next })}
                         />
-                      </Row>
-                    ))}
-                  </div>
-
-                  <Field
-                    label="Audit log folder"
-                    hint="Point this at a synced folder and the log leaves the machine. The card writes every run here, so the coach can read nights without touching the laptop. Saves without the key."
-                  >
-                    <input
-                      type="text"
-                      value={draft.logDir}
-                      onChange={(event) => setDraft({ ...draft, logDir: event.target.value })}
-                      placeholder="empty: the app's own log folder"
-                      className="h-10 w-full rounded-[var(--radius-sm)] border border-input bg-input/30 px-3 font-mono text-[11px]"
-                    />
-                    <div className="font-mono text-[11px] text-muted-foreground/70">
-                      now: {state?.logPath ?? "unknown"}
-                    </div>
-                  </Field>
-
-                  {asking ? (
-                    <form
-                      className="space-y-2"
-                      onSubmit={(event) => {
-                        event.preventDefault();
-                        void commit(key);
-                      }}
-                    >
-                      <p className="text-[11px] text-muted-foreground">
-                        The clock is key-gated. Enter the release key to move it.
-                      </p>
-                      <div className="flex gap-2">
-                        <input
-                          // biome-ignore lint/a11y/noAutofocus: the prompt exists to be typed into
-                          autoFocus
-                          type="password"
-                          value={key}
-                          onChange={(event) => setKey(event.target.value)}
-                          placeholder="release key"
-                          aria-label="Release key"
-                          className="h-10 min-w-0 flex-1 rounded-full border border-input bg-input/40 px-4 font-mono text-xs"
-                        />
-                        <Button type="submit" size="sm" className="h-10" disabled={saving}>
-                          Unlock &amp; save
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-10"
-                          onClick={() => {
-                            setAsking(false);
-                            setKey("");
-                            setSaveError(null);
-                          }}
-                        >
-                          Cancel
-                        </Button>
                       </div>
-                      {saveError && <p className="text-[11px] text-destructive">{saveError}</p>}
-                    </form>
-                  ) : (
-                    <div className="flex items-center gap-3">
-                      <Button size="sm" onClick={() => void save()}>
-                        Save schedule
-                      </Button>
-                      <span className="text-[11px] text-muted-foreground">
-                        {saved
-                          ? "Saved. Task Scheduler updated."
-                          : scheduleMoves
-                            ? "Changing the clock needs the release key."
-                            : `Armed nightly at ${config?.start}.`}
-                      </span>
                     </div>
-                  )}
-                </CardContent>
-              </Card>
+                  ))}
+                </div>
+              </Group>
 
-              <Card>
-                <CardHeader className="p-5">
-                  <CardTitle>Build</CardTitle>
-                  <CardDescription>
-                    Releases are signed, and the manifest hash is verified before anything installs.
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="p-5 pt-0">
-                  <UpdateRow
-                    version={version}
-                    status={status}
-                    updateVersion={update.version}
-                    notes={update.notes}
-                    onCheck={() => void checkUpdates()}
-                    onInstall={() => void installUpdate()}
+              <Group title="Log" hint="Point it at a synced folder and the log leaves the machine.">
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={draft.logDir}
+                    onChange={(event) => setDraft({ ...draft, logDir: event.target.value })}
+                    placeholder="empty: the app's own log folder"
+                    className={cn(inputClass, "font-mono text-xs")}
                   />
-                </CardContent>
-              </Card>
-            </>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="shrink-0"
+                    onClick={() => {
+                      void navigator.clipboard
+                        .writeText(state?.logPath ?? "")
+                        .then(() => toast.success("Path copied"))
+                        .catch(() => toast.error("Could not copy the path"));
+                    }}
+                  >
+                    Copy
+                  </Button>
+                </div>
+                <p className="mt-2 break-all font-mono text-xs text-muted-foreground/70">
+                  now: {state?.logPath ?? "unknown"}
+                </p>
+              </Group>
+
+              <Group title="Build">
+                <div className="flex items-center gap-3">
+                  <div>
+                    <div className="tabular text-sm">Curfew {version}</div>
+                    <div className="text-xs text-muted-foreground">
+                      Releases are signed; the manifest is verified before install.
+                    </div>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="ml-auto text-primary-ink"
+                    onClick={() => {
+                      const id = toast.loading("Checking the manifest…");
+                      void api
+                        .checkUpdate()
+                        .then((update) => {
+                          if (!update.available) {
+                            toast.success("Up to date", { id, description: `Curfew ${version}` });
+                            return;
+                          }
+                          toast(`Curfew ${update.version} is ready`, {
+                            id,
+                            description: update.notes || "Signed build from GitHub.",
+                            duration: Number.POSITIVE_INFINITY,
+                            action: {
+                              label: "Install",
+                              onClick: () => {
+                                const job = toast.loading("Downloading and verifying…");
+                                void api
+                                  .installUpdate()
+                                  .then(() =>
+                                    toast.success("Installing", {
+                                      id: job,
+                                      description: "Curfew restarts itself.",
+                                    }),
+                                  )
+                                  .catch((error) => toast.error(humanError(error), { id: job }));
+                              },
+                            },
+                          });
+                        })
+                        .catch((error) => toast.error(humanError(error), { id }));
+                    }}
+                  >
+                    Check for updates
+                  </Button>
+                </div>
+              </Group>
+            </div>
           )}
         </div>
       </main>
+
+      {view === "settings" && movesAnything && (
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 flex justify-center pb-5">
+          <div className="pointer-events-auto flex w-[640px] items-center gap-3 rounded-[var(--radius)] border border-white/10 bg-popover px-4 py-3 shadow-xl">
+            <div className="text-sm text-muted-foreground">
+              <span className="text-foreground">Unsaved changes</span>
+              {movesClock ? " — the clock is locked until you enter the key." : "."}
+            </div>
+            <div className="ml-auto flex gap-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-muted-foreground"
+                onClick={() => config && setDraft(config)}
+              >
+                Cancel
+              </Button>
+              <Button
+                size="sm"
+                disabled={saving || blocked || (movesClock && key.trim().length === 0)}
+                onClick={() => void save()}
+              >
+                <IconCheck size={14} /> Save changes
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <Toaster />
     </div>
   );
 }

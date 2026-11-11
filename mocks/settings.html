@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="en-GB">
+  <head>
+    <meta charset="utf-8" />
+    <title>Curfew — redesign mock (settings)</title>
+    <style>
+      @font-face {
+        font-family: Inter;
+        src: url("/src/assets/fonts/InterVariable.woff2") format("woff2");
+        font-weight: 100 900;
+        font-display: block;
+      }
+      :root {
+        --ground: #030712;
+        --panel: #0e131c;
+        --panel-2: #131a25;
+        --line: rgba(255, 255, 255, 0.07);
+        --line-strong: rgba(255, 255, 255, 0.12);
+        --ink: #f3f6fa;
+        --ink-2: #9aa3b2;
+        --ink-3: #6a7383;
+        --blue-ink: #66a6fb;
+        --amber-ink: #f0b53c;
+        --green: #4ade9b;
+        --red: #ff6467;
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; height: 100%; }
+      body {
+        background: var(--ground);
+        color: var(--ink);
+        font: 15px/1.5 Inter, ui-sans-serif, system-ui, sans-serif;
+        -webkit-font-smoothing: antialiased;
+        overflow: hidden;
+      }
+
+      .bar { height: 48px; display: flex; align-items: center; gap: 16px; padding: 0 20px; border-bottom: 1px solid var(--line); }
+      .state { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--ink-2); }
+      .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); box-shadow: 0 0 0 4px rgba(74, 222, 155, 0.12); }
+      .state b { color: var(--ink); font-weight: 500; }
+      .panes { display: flex; gap: 2px; margin: 0 auto; background: rgba(255,255,255,0.03); padding: 3px; border-radius: 10px; }
+      .panes span { padding: 5px 12px; border-radius: 7px; font-size: 13px; color: var(--ink-3); }
+      .panes .on { background: var(--panel-2); color: var(--ink); }
+      .ghost { height: 30px; padding: 0 12px; border-radius: 8px; border: 1px solid var(--line-strong); background: transparent; color: var(--ink); font: 500 13px Inter, sans-serif; }
+
+      main { width: 640px; margin: 0 auto; padding: 32px 0 112px; height: calc(100% - 48px); overflow: hidden; }
+
+      .group { padding-top: 20px; margin-top: 20px; border-top: 1px solid var(--line); }
+      .group:first-child { padding-top: 0; margin-top: 0; border-top: 0; }
+      .gtitle { font-size: 13px; font-weight: 600; letter-spacing: -0.01em; }
+      .gdesc { margin-top: 3px; font-size: 11.5px; color: var(--ink-3); }
+
+      .rowset { margin-top: 14px; display: flex; gap: 12px; }
+      .fld { flex: 1; }
+      .fld > span { display: block; font-size: 11px; color: var(--ink-3); margin-bottom: 6px; }
+      .inp {
+        height: 34px; width: 100%; display: flex; align-items: center; gap: 8px;
+        padding: 0 11px; border-radius: 8px; border: 1px solid var(--line-strong);
+        background: rgba(255, 255, 255, 0.02);
+        font: 500 13px Inter, sans-serif; color: var(--ink);
+        font-variant-numeric: tabular-nums;
+      }
+      .inp small { margin-left: auto; font-size: 10.5px; font-weight: 400; color: var(--ink-3); }
+      .inp.focus { border-color: var(--blue-ink); box-shadow: 0 0 0 3px rgba(102, 166, 251, 0.14); }
+      .inp.locked { color: var(--ink-2); }
+
+      .sent { margin-top: 10px; font-size: 12px; color: var(--ink-2); }
+      .sent b { color: var(--ink); font-weight: 500; font-variant-numeric: tabular-nums; }
+
+      .keystrip {
+        margin-top: 14px; padding: 10px 12px; border-radius: 10px;
+        background: var(--panel-2); border: 1px solid var(--line-strong);
+        display: flex; align-items: center; gap: 12px;
+      }
+      .keystrip .txt { font-size: 12.5px; color: var(--amber-ink); font-weight: 500; }
+      .keystrip .sub { font-size: 11px; color: var(--ink-3); margin-top: 2px; }
+      .keyinp {
+        margin-left: auto; height: 28px; width: 156px; border-radius: 7px;
+        border: 1px solid rgba(240, 181, 60, 0.3); background: rgba(0, 0, 0, 0.25);
+        color: var(--ink); font: 500 12px ui-monospace, Menlo, monospace; padding: 0 10px;
+      }
+      .keybtn { height: 28px; padding: 0 11px; border-radius: 7px; border: 0; background: var(--amber-ink); color: #241a04; font: 600 12px Inter, sans-serif; }
+
+      .list { margin-top: 8px; }
+      .item { display: flex; align-items: center; gap: 16px; padding: 10px 0; border-top: 1px solid var(--line); }
+      .item:first-child { border-top: 0; }
+      .item .t { font-size: 13px; }
+      .item .h { font-size: 11.5px; color: var(--ink-3); margin-top: 2px; }
+      .sw { margin-left: auto; width: 36px; height: 20px; border-radius: 999px; background: rgba(255,255,255,0.1); position: relative; flex: 0 0 auto; }
+      .sw::after { content: ""; position: absolute; top: 3px; left: 3px; width: 14px; height: 14px; border-radius: 50%; background: #cfd6e0; transition: left 120ms ease-out; }
+      .sw.on { background: var(--blue-ink); }
+      .sw.on::after { left: 19px; background: #ffffff; }
+
+      .pathrow { margin-top: 16px; display: flex; gap: 8px; align-items: center; }
+      .pathrow .inp { font-family: ui-monospace, Menlo, monospace; font-size: 11.5px; color: var(--ink-2); }
+      .copy { height: 34px; padding: 0 12px; border-radius: 8px; border: 1px solid var(--line-strong); background: transparent; color: var(--ink-2); font: 500 12px Inter, sans-serif; }
+      .now { margin-top: 8px; font-size: 11px; color: var(--ink-3); font-family: ui-monospace, Menlo, monospace; }
+
+      .buildrow { margin-top: 14px; display: flex; align-items: center; gap: 12px; }
+      .buildrow .v { font-size: 13px; font-variant-numeric: tabular-nums; }
+      .buildrow .s { font-size: 11.5px; color: var(--ink-3); }
+      .link { margin-left: auto; background: 0; border: 0; color: var(--blue-ink); font: 500 12.5px Inter, sans-serif; }
+
+      .savebar {
+        position: absolute; left: 50%; transform: translateX(-50%); bottom: 20px;
+        width: 640px; height: 52px; border-radius: 12px;
+        background: var(--panel-2); border: 1px solid var(--line-strong);
+        box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+        display: flex; align-items: center; gap: 12px; padding: 0 14px;
+      }
+      .savebar .msg { font-size: 12.5px; color: var(--ink-2); }
+      .savebar .msg b { color: var(--ink); font-weight: 500; }
+      .savebar .btns { margin-left: auto; display: flex; gap: 8px; }
+      .b2 { height: 30px; padding: 0 12px; border-radius: 7px; border: 1px solid var(--line-strong); background: transparent; color: var(--ink-2); font: 500 12.5px Inter, sans-serif; }
+      .b1 { height: 30px; padding: 0 14px; border-radius: 7px; border: 0; background: var(--blue-ink); color: #06101c; font: 600 12.5px Inter, sans-serif; }
+    </style>
+  </head>
+  <body>
+    <div class="bar">
+      <div class="state"><span class="dot"></span> Armed <b>until 22:00</b></div>
+      <div class="panes"><span>Tonight</span><span>History</span><span class="on">Settings</span></div>
+      <button class="ghost">Test card</button>
+    </div>
+
+    <main>
+      <section class="group">
+        <div class="gtitle">Schedule</div>
+        <div class="gdesc">When the card appears and when Windows goes down.</div>
+
+        <div class="rowset">
+          <div class="fld">
+            <span>Card opens</span>
+            <div class="inp focus">21:30</div>
+          </div>
+          <div class="fld">
+            <span>Shutdown</span>
+            <div class="inp">22:00</div>
+          </div>
+          <div class="fld">
+            <span>Grace</span>
+            <div class="inp">5 <small>min</small></div>
+          </div>
+        </div>
+
+        <div class="sent">
+          Countdown <b>30 min</b>, then grace <b>5 min</b>. Shutdown at <b>22:00</b>, no cancel.
+        </div>
+
+        <div class="keystrip">
+          <div>
+            <div class="txt">The clock needs the release key</div>
+            <div class="sub">Moving a time is the one edit the curfew exists to prevent.</div>
+          </div>
+          <input class="keyinp" type="password" value="••••••••••" />
+          <button class="keybtn">Unlock</button>
+        </div>
+      </section>
+
+      <section class="group">
+        <div class="gtitle">Behaviour</div>
+        <div class="list">
+          <div class="item">
+            <div>
+              <div class="t">Run on battery</div>
+              <div class="h">A laptop that unplugs escapes a curfew that needs mains.</div>
+            </div>
+            <div class="sw on"></div>
+          </div>
+          <div class="item">
+            <div>
+              <div class="t">Wake the machine</div>
+              <div class="h">Brings the laptop out of sleep to draw the card.</div>
+            </div>
+            <div class="sw on"></div>
+          </div>
+          <div class="item">
+            <div>
+              <div class="t">Open console at login</div>
+              <div class="h">Tray countdown, close to tray, no taskbar button.</div>
+            </div>
+            <div class="sw"></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="group">
+        <div class="gtitle">Log</div>
+        <div class="gdesc">Every run is one line. Point it at a synced folder and the log leaves the machine.</div>
+        <div class="pathrow">
+          <div class="inp locked">C:\Users\marek\Obsidian\sveetya-brain\＃life-admin\03 Custom apps</div>
+          <button class="copy">Copy</button>
+        </div>
+        <div class="now">now: …\03 Custom apps\curfew.log</div>
+      </section>
+
+          </main>
+
+    <div class="savebar">
+      <div class="msg"><b>Unsaved changes</b> — the clock is locked until you enter the key.</div>
+      <div class="btns">
+        <button class="b2">Cancel</button>
+        <button class="b1">Save changes</button>
+      </div>
+    </div>
+  </body>
+</html>

@@ -377,6 +377,27 @@ fn set_config(
     Ok(config)
 }
 
+/// Called on every console start. Installs the nightly task the first time and
+/// re-installs after an upgrade, which is what makes "install the app" actually
+/// mean tonight has a curfew.
+#[tauri::command]
+fn ensure_scheduled(app: AppHandle) -> Result<bool, String> {
+    let mut config = config::load(&app);
+    let version = app.package_info().version.to_string();
+    if config.task_version == version {
+        return Ok(false);
+    }
+    install_task(&app, &config)?;
+    config.task_version = version;
+    config::save(&app, &config)?;
+    let _ = audit::append(
+        &log_path(&app),
+        Local::now(),
+        &format!("task installed for app {}", config.task_version),
+    );
+    Ok(true)
+}
+
 #[tauri::command]
 fn set_autostart(app: AppHandle, enabled: bool) -> Result<Config, String> {
     let mut config = config::load(&app);
@@ -569,6 +590,7 @@ pub fn run() {
             get_config,
             set_config,
             set_autostart,
+            ensure_scheduled,
             open_card
         ])
         .setup(|app| {

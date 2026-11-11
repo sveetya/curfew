@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en-GB">
+  <head>
+    <meta charset="utf-8" />
+    <title>Curfew — redesign mock (console)</title>
+    <style>
+      @font-face {
+        font-family: Inter;
+        src: url("/src/assets/fonts/InterVariable.woff2") format("woff2");
+        font-weight: 100 900;
+        font-display: block;
+      }
+      :root {
+        --ground: #030712;
+        --panel: #0e131c;
+        --panel-2: #131a25;
+        --line: rgba(255, 255, 255, 0.07);
+        --line-strong: rgba(255, 255, 255, 0.12);
+        --ink: #f3f6fa;
+        --ink-2: #9aa3b2;
+        --ink-3: #6a7383;
+        --blue: #0059b3;
+        --blue-ink: #66a6fb;
+        --amber: #d08700;
+        --green: #4ade9b;
+        --red: #ff6467;
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; height: 100%; }
+      body {
+        background: var(--ground);
+        color: var(--ink);
+        font: 15px/1.5 Inter, ui-sans-serif, system-ui, sans-serif;
+        -webkit-font-smoothing: antialiased;
+        overflow: hidden;
+      }
+
+      /* ---- top bar : state, panes, one action ---- */
+      .bar {
+        height: 48px;
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        padding: 0 20px;
+        border-bottom: 1px solid var(--line);
+      }
+      .state { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--ink-2); }
+      .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); box-shadow: 0 0 0 4px rgba(74, 222, 155, 0.12); }
+      .state b { color: var(--ink); font-weight: 500; }
+
+      .panes { display: flex; gap: 2px; margin: 0 auto; background: rgba(255,255,255,0.03); padding: 3px; border-radius: 10px; }
+      .panes span { padding: 5px 12px; border-radius: 7px; font-size: 13px; color: var(--ink-3); }
+      .panes .on { background: var(--panel-2); color: var(--ink); box-shadow: 0 1px 0 rgba(255,255,255,0.06) inset; }
+
+      .bar .right { display: flex; align-items: center; gap: 8px; }
+      .ghost {
+        height: 30px; padding: 0 12px; border-radius: 8px; border: 1px solid var(--line-strong);
+        background: transparent; color: var(--ink); font: 500 13px Inter, sans-serif; cursor: pointer;
+      }
+      .ghost:hover { background: rgba(255,255,255,0.04); }
+
+      /* ---- content column ---- */
+      main { width: 640px; margin: 0 auto; padding: 72px 0 0; }
+      .eyebrow { font-size: 11px; font-weight: 500; color: var(--ink-3); }
+      .clockrow { display: flex; align-items: baseline; gap: 12px; margin-top: 6px; }
+      .clock {
+        font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+        font-variant-numeric: tabular-nums;
+        font-size: 44px; line-height: 1; letter-spacing: -0.02em; font-weight: 500;
+      }
+      .until { color: var(--ink-3); font-size: 13px; }
+
+      .track { margin-top: 28px; height: 2px; background: rgba(255,255,255,0.08); border-radius: 2px; }
+      .track > i { display: block; height: 100%; border-radius: 2px; background: var(--blue-ink); }
+      .tracklabels { display: flex; justify-content: space-between; margin-top: 8px; font-size: 11px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+
+      .vitals { display: flex; align-items: stretch; margin-top: 40px; }
+      .vital { flex: 1; padding-left: 20px; border-left: 1px solid var(--line); }
+      .vital:first-child { padding-left: 0; border-left: 0; }
+      .vital span { display: block; font-size: 11px; color: var(--ink-3); }
+      .vital b { display: block; margin-top: 3px; font-size: 15px; font-weight: 500; font-variant-numeric: tabular-nums; }
+
+      .last { margin-top: 40px; padding-top: 16px; border-top: 1px solid var(--line); display: flex; align-items: baseline; gap: 12px; font-size: 13px; color: var(--ink-2); }
+      .last .k { color: var(--ink-3); font-size: 11px; width: 78px; }
+      .last a { margin-left: auto; color: var(--blue-ink); text-decoration: none; font-size: 13px; }
+
+      .actions { margin-top: 36px; display: flex; align-items: center; gap: 8px; }
+      .btn { height: 34px; padding: 0 14px; border-radius: 8px; border: 1px solid var(--line-strong); background: transparent; color: var(--ink); font: 500 13px Inter, sans-serif; cursor: pointer; }
+      .btn:hover { background: rgba(255,255,255,0.05); }
+      .btn.quiet { border-color: transparent; color: var(--ink-2); }
+      .btn.quiet:hover { color: var(--ink); }
+      .btn.danger { margin-left: auto; border-color: transparent; color: var(--ink-3); font-weight: 400; }
+      .btn.danger:hover { color: var(--red); background: rgba(255, 100, 103, 0.08); }
+      .hint { font-size: 11px; color: var(--ink-3); margin-left: 8px; }
+    </style>
+  </head>
+  <body>
+    <div class="bar">
+      <div class="state"><span class="dot"></span> Armed <b>until 22:00</b></div>
+      <div class="panes">
+        <span class="on">Tonight</span><span>History</span><span>Settings</span>
+      </div>
+      <div class="right">
+        <button class="ghost">Test card</button>
+      </div>
+    </div>
+
+    <main>
+      <div class="clockrow">
+        <div class="clock">9:47</div>
+        <div class="until">until 22:00</div>
+      </div>
+
+      <div class="track"><i style="width: 62%"></i></div>
+      <div class="tracklabels"><span>21:30</span><span>22:00</span></div>
+
+      <div class="vitals">
+        <div class="vital"><span>Deadline</span><b>22:00</b></div>
+        <div class="vital"><span>Grace</span><b>5 min</b></div>
+        <div class="vital"><span>Borrowed</span><b>0</b></div>
+        <div class="vital"><span>Owed</span><b>0 min</b></div>
+      </div>
+
+      <div class="last">
+        <span class="k">Last night</span>
+        <span>22:00 · shutdown · 0 borrows</span>
+        <a href="#">History →</a>
+      </div>
+
+      <div class="actions">
+        <button class="btn">Wait 10 min</button>
+        <button class="btn quiet">Release</button>
+        <button class="btn danger">Shut down…</button>
+      </div>
+    </main>
+  </body>
+</html>

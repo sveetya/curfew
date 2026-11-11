@@ -114,6 +114,8 @@ export const mock = {
     ]
       .filter(Boolean)
       .join("\n"),
+  // Preview never touches Task Scheduler, so it never claims to have armed.
+  ensureScheduled: async () => false,
   getConfig: async () => config,
   setConfig: async (next: CurfewConfig, key?: string) => {
     const movesClock =

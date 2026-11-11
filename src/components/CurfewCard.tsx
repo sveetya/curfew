@@ -1,32 +1,33 @@
 import { useCallback, useEffect, useState } from "react";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/components/ui/card";
-import { api, isTauri } from "@/lib/bridge";
+import { api } from "@/lib/bridge";
+import { humanError } from "@/lib/errors";
 import { clock, percentLeft } from "@/lib/format";
 import type { CurfewState } from "@/lib/types";
+import { useConfirm } from "@/lib/use-confirm";
 
 const TONE = {
   work: {
-    dot: "bg-primary",
+    dot: "bg-success",
     clock: "text-foreground",
-    border: "border-border/80",
-    fill: "bg-primary",
-    eyebrow: "NIGHT CURFEW",
+    bar: "bg-primary-ink",
+    label: "Night curfew",
+    note: "no cancel",
   },
   grace: {
     dot: "bg-secondary",
     clock: "text-secondary",
-    border: "border-secondary/45",
-    fill: "bg-secondary",
-    eyebrow: "FINISH UP",
+    bar: "bg-secondary",
+    label: "Finish up",
+    note: "last minutes",
   },
   expired: {
     dot: "bg-destructive",
     clock: "text-destructive",
-    border: "border-destructive/50",
-    fill: "bg-destructive",
-    eyebrow: "SHUTTING DOWN",
+    bar: "bg-destructive",
+    label: "Shutting down",
+    note: "now",
   },
 } as const;
 
@@ -37,12 +38,13 @@ export function CurfewCard() {
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState(false);
   const [busy, setBusy] = useState(false);
+  const shutdown = useConfirm(3);
 
   const refresh = useCallback(async () => {
     try {
       setState(await api.getState());
     } catch (err) {
-      setMessage(String(err));
+      setMessage(humanError(err));
       setError(true);
     }
   }, []);
@@ -53,12 +55,34 @@ export function CurfewCard() {
     return () => window.clearInterval(tick);
   }, [refresh]);
 
-  const act = async (fn: () => Promise<CurfewState>) => {
+  // Esc backs out of the key prompt, the way any modal should.
+  useEffect(() => {
+    if (!prompting) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setPrompting(false);
+        setKey("");
+        setMessage(null);
+        setError(false);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [prompting]);
+
+  const wait = async () => {
     setBusy(true);
     try {
-      setState(await fn());
+      const next = await api.waitTen();
+      setState(next);
+      setError(false);
+      setMessage(
+        next.borrows > 0
+          ? `borrowed · ${next.owedMinutes} min owed`
+          : `moved to ${next.deadlineLabel}`,
+      );
     } catch (err) {
-      setMessage(String(err));
+      setMessage(humanError(err));
       setError(true);
     } finally {
       setBusy(false);
@@ -77,171 +101,164 @@ export function CurfewCard() {
       }
       await refresh();
     } catch (err) {
-      setMessage(String(err));
+      setMessage(humanError(err));
       setError(true);
     } finally {
       setBusy(false);
     }
   };
 
+  const shutDown = async () => {
+    try {
+      await api.shutdownNow();
+    } catch (err) {
+      setMessage(humanError(err));
+      setError(true);
+    }
+  };
+
   if (!state) {
     return (
-      <div className="h-full w-full p-2">
-        <div className="flex h-full items-center justify-center rounded-[var(--radius)] border border-border bg-card">
-          <span className="font-mono text-xs text-muted-foreground">connecting…</span>
-        </div>
+      <div className="grid h-full place-items-center">
+        <span className="font-mono text-xs text-muted-foreground">connecting…</span>
       </div>
     );
   }
 
   const tone = TONE[state.phase];
-  const inGrace = state.phase === "grace";
-  const countdown = inGrace ? state.graceRemainingSeconds : state.remainingSeconds;
-  const locked = state.lockoutSeconds > 0;
+  const grace = state.phase === "grace";
+  const seconds = grace ? state.graceRemainingSeconds : state.remainingSeconds;
 
   return (
-    <div className="h-full w-full p-2">
-      <div
-        className={cn(
-          "flex h-full flex-col justify-between rounded-[var(--radius)] border bg-card p-4",
-          "shadow-[var(--shadow-xl)] transition-colors duration-300",
-          tone.border,
-        )}
-      >
-        <header className="flex items-center justify-between" data-tauri-drag-region>
-          <div className="flex items-center gap-2">
-            <span className={cn("size-2 rounded-full", tone.dot)} />
-            <span className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
-              {tone.eyebrow}
-            </span>
-          </div>
-          {(!isTauri || state.dryRun) && (
-            <Badge tone="neutral" className="px-2 py-0.5">
-              preview
-            </Badge>
-          )}
+    <div className="p-2">
+      <div className="flex h-[232px] flex-col rounded-[18px] border border-white/10 bg-card px-4 py-4 shadow-[0_10px_30px_rgba(0,0,0,0.45)]">
+        <header className="flex items-center gap-2" data-tauri-drag-region>
+          <span className={cn("size-1.5 rounded-full", tone.dot)} />
+          <span className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+            {tone.label}
+          </span>
+          <span className="tabular ml-auto text-xs text-muted-foreground">
+            {state.deadlineLabel}
+          </span>
         </header>
 
-        <div className="flex items-end justify-between gap-3" data-tauri-drag-region>
+        <div className="mt-3.5 flex items-baseline gap-2.5" data-tauri-drag-region>
           <div
-            className={cn(
-              "tabular font-mono text-[48px] font-semibold leading-none tracking-tight",
-              tone.clock,
-            )}
+            className={cn("tabular font-mono text-display font-medium tracking-tight", tone.clock)}
           >
-            {state.released ? "off" : clock(countdown)}
+            {state.released ? "off" : clock(seconds)}
           </div>
-          <div className="pb-0.5 text-right">
-            <div className="tabular font-mono text-[15px] leading-none text-foreground">
-              {state.deadlineLabel}
-            </div>
-            <div className="mt-1 text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
-              {inGrace ? "grace ends" : "shutdown"}
-            </div>
+          <div className="text-xs text-muted-foreground">
+            {grace ? "grace" : state.borrows > 0 ? `${state.borrows} borrowed` : tone.note}
           </div>
         </div>
 
-        <div className="space-y-2">
-          <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
+        <div className="mt-auto">
+          <div className="h-[3px] w-full overflow-hidden rounded-full bg-white/8">
             <div
-              className={cn(
-                "h-full rounded-full transition-[width] duration-500 ease-linear",
-                tone.fill,
-              )}
+              className={cn("h-full rounded-full", tone.bar)}
               style={{
-                width: `${percentLeft(
-                  countdown,
-                  inGrace ? state.graceSeconds : state.totalSeconds,
-                )}%`,
+                width: `${percentLeft(seconds, grace ? state.graceSeconds : state.totalSeconds)}%`,
               }}
             />
           </div>
 
-          <div className="flex items-center justify-between gap-2 text-[11px]">
-            <span className={cn("truncate", error ? "text-destructive" : "text-muted-foreground")}>
-              {message ??
-                (inGrace ? "save, commit, close" : `grace ${state.graceMinutes} min after zero`)}
-            </span>
-            {state.borrows > 0 && (
-              <span className="shrink-0 font-mono text-secondary">borrows {state.borrows}</span>
+          {message && (
+            <p
+              className={cn(
+                "mt-2 truncate text-xs",
+                error ? "text-destructive" : "text-muted-foreground",
+              )}
+            >
+              {message}
+            </p>
+          )}
+
+          <div className="mt-2.5 flex items-center gap-1">
+            {prompting ? (
+              <form
+                className="flex w-full gap-1.5"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  if (state.lockoutSeconds === 0) void submitKey();
+                }}
+              >
+                <input
+                  // biome-ignore lint/a11y/noAutofocus: the prompt exists to be typed into
+                  autoFocus
+                  type="password"
+                  value={key}
+                  onChange={(event) => setKey(event.target.value)}
+                  disabled={state.lockoutSeconds > 0 || busy}
+                  placeholder={
+                    state.lockoutSeconds > 0
+                      ? `locked ${clock(state.lockoutSeconds)}`
+                      : "release key"
+                  }
+                  aria-label="Release key"
+                  className="h-8 min-w-0 flex-1 rounded-md border border-white/12 bg-black/25 px-2.5 font-mono text-xs disabled:opacity-60"
+                />
+                <Button
+                  type="submit"
+                  size="sm"
+                  className="h-8"
+                  disabled={state.lockoutSeconds > 0 || busy}
+                >
+                  Unlock
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 px-2 text-muted-foreground"
+                  onClick={() => {
+                    setPrompting(false);
+                    setKey("");
+                    setMessage(null);
+                    setError(false);
+                  }}
+                >
+                  Back
+                </Button>
+              </form>
+            ) : (
+              <>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-8"
+                  disabled={busy}
+                  onClick={() => void wait()}
+                >
+                  Wait 10 min
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 px-2 text-muted-foreground"
+                  disabled={busy}
+                  onClick={() => {
+                    setPrompting(true);
+                    setMessage(null);
+                    setError(false);
+                  }}
+                >
+                  Release
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className={cn(
+                    "ml-auto h-8 px-2 text-muted-foreground",
+                    shutdown.armed && "text-destructive",
+                  )}
+                  disabled={busy}
+                  onClick={() => shutdown.trigger(() => void shutDown())}
+                >
+                  {shutdown.armed ? `Confirm (${shutdown.left})` : "Shut down…"}
+                </Button>
+              </>
             )}
           </div>
-
-          {prompting ? (
-            <form
-              className="flex gap-1.5"
-              onSubmit={(event) => {
-                event.preventDefault();
-                if (!locked) void submitKey();
-              }}
-            >
-              <input
-                // biome-ignore lint/a11y/noAutofocus: the prompt exists to be typed into
-                autoFocus
-                value={key}
-                onChange={(event) => setKey(event.target.value)}
-                disabled={locked || busy}
-                placeholder={locked ? `locked ${clock(state.lockoutSeconds)}` : "release key"}
-                aria-label="Release key"
-                className={cn(
-                  "h-9 min-w-0 flex-1 rounded-full border border-input bg-input/40 px-3.5 font-mono text-xs",
-                  "text-foreground placeholder:text-muted-foreground/70",
-                  "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
-                  locked && "opacity-60",
-                )}
-              />
-              <Button type="submit" size="sm" className="h-9" disabled={locked || busy}>
-                Unlock
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-9 px-3"
-                onClick={() => {
-                  setPrompting(false);
-                  setKey("");
-                  setMessage(null);
-                  setError(false);
-                }}
-              >
-                Back
-              </Button>
-            </form>
-          ) : (
-            <div className="grid grid-cols-3 gap-1.5">
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-9 px-2 text-xs"
-                disabled={busy}
-                onClick={() => void act(api.waitTen)}
-              >
-                Wait 10
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-9 border border-input/60 px-2 text-xs text-foreground"
-                disabled={busy}
-                onClick={() => {
-                  setPrompting(true);
-                  setMessage(null);
-                  setError(false);
-                }}
-              >
-                Release
-              </Button>
-              <Button
-                variant="destructive"
-                size="sm"
-                className="h-9 px-2 text-xs"
-                disabled={busy}
-                onClick={() => void act(api.shutdownNow)}
-              >
-                Shut down
-              </Button>
-            </div>
-          )}
         </div>
       </div>
     </div>

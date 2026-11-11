@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en-GB">
+  <head>
+    <meta charset="utf-8" />
+    <title>Curfew — redesign mock (card)</title>
+    <style>
+      @font-face {
+        font-family: Inter;
+        src: url("/src/assets/fonts/InterVariable.woff2") format("woff2");
+        font-weight: 100 900;
+        font-display: block;
+      }
+      :root {
+        --panel: #0e131c;
+        --line: rgba(255, 255, 255, 0.09);
+        --ink: #f3f6fa;
+        --ink-2: #9aa3b2;
+        --ink-3: #6a7383;
+        --amber: #d08700;
+        --amber-ink: #f0b53c;
+        --red: #ff6467;
+        --blue-ink: #66a6fb;
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; height: 100%; }
+      /* desktop wallpaper stand-in so the transparent overlay reads */
+      body { background: linear-gradient(135deg, #1b2230, #131a26); }
+      body {
+        font: 15px/1.5 Inter, ui-sans-serif, system-ui, sans-serif;
+        color: var(--ink);
+        -webkit-font-smoothing: antialiased;
+        padding: 8px;
+        overflow: hidden;
+      }
+      .card {
+        height: 232px;
+        border-radius: 18px;
+        background: var(--panel);
+        border: 1px solid var(--line);
+        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45), 0 1px 0 rgba(255, 255, 255, 0.04) inset;
+        padding: 16px 18px;
+        display: flex;
+        flex-direction: column;
+      }
+      .top { display: flex; align-items: center; gap: 8px; }
+      .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--amber); box-shadow: 0 0 0 3px rgba(208, 135, 0, 0.16); }
+      .phase { font-size: 11px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: var(--amber-ink); }
+      .deadline { margin-left: auto; font-size: 12px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+
+      .mid { display: flex; align-items: baseline; gap: 10px; margin-top: 14px; }
+      .clock {
+        font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+        font-variant-numeric: tabular-nums;
+        font-size: 44px; line-height: 1; letter-spacing: -0.02em; font-weight: 500;
+        color: var(--amber-ink);
+      }
+      .sub { font-size: 12px; color: var(--ink-3); }
+
+      .track { margin-top: auto; height: 3px; border-radius: 3px; background: rgba(255, 255, 255, 0.08); }
+      .track > i { display: block; height: 100%; width: 38%; border-radius: 3px; background: var(--amber); }
+
+      .actions { margin-top: 14px; display: flex; align-items: center; gap: 6px; }
+      .btn { height: 32px; padding: 0 12px; border-radius: 8px; border: 1px solid transparent; background: transparent; color: var(--ink-2); font: 500 12.5px Inter, sans-serif; cursor: pointer; }
+      .btn:hover { color: var(--ink); background: rgba(255, 255, 255, 0.05); }
+      .btn.solid { background: rgba(255, 255, 255, 0.06); border-color: rgba(255, 255, 255, 0.1); color: var(--ink); }
+      .btn.solid:hover { background: rgba(255, 255, 255, 0.1); }
+      .btn.confirm { margin-left: auto; color: var(--red); }
+      .btn.confirm:hover { background: rgba(255, 100, 103, 0.1); }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <div class="top">
+        <span class="dot"></span>
+        <span class="phase">Finish up</span>
+        <span class="deadline">22:00</span>
+      </div>
+
+      <div class="mid">
+        <div class="clock">4:58</div>
+        <div class="sub">last 5 minutes</div>
+      </div>
+
+      <div class="track"><i></i></div>
+
+      <div class="actions">
+        <button class="btn solid">Wait 10 min</button>
+        <button class="btn">Release</button>
+        <button class="btn confirm">Shut down in 3…</button>
+      </div>
+    </div>
+  </body>
+</html>
