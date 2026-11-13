@@ -12,7 +12,7 @@ use std::path::PathBuf;
 use std::process::Command;
 use std::sync::Mutex;
 
-use chrono::{DateTime, Duration, Local, NaiveTime, TimeZone};
+use chrono::{DateTime, Duration, Local, TimeZone, Timelike};
 use serde::Serialize;
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{TrayIconBuilder, TrayIconEvent};
@@ -45,6 +45,8 @@ pub struct CurfewState {
     grace_remaining_seconds: i64,
     phase: Phase,
     total_seconds: i64,
+    /// Seconds past the deadline; zero until Windows was due to be down.
+    overdue_seconds: i64,
     deadline_minutes: i64,
     grace_minutes: i64,
     borrows: u32,
@@ -78,6 +80,10 @@ struct Inner {
     /// Set once the deadline has fired, so a running process cannot take the
     /// machine down twice.
     fired: bool,
+    /// True once the plan was seen counting down. A plan born already expired
+    /// (the app opened at 23:00) never arms, so the first sight of a late night
+    /// is a card that says how late it is, not an outage.
+    armed: bool,
 }
 
 impl Default for Runtime {
@@ -90,6 +96,7 @@ impl Default for Runtime {
                 summarised: false,
                 last_tick: None,
                 fired: false,
+                armed: false,
             }),
         }
     }
@@ -108,28 +115,54 @@ fn log_path(app: &AppHandle) -> PathBuf {
     }
 }
 
-fn today_at(time: &str) -> Option<DateTime<Local>> {
-    let naive = NaiveTime::parse_from_str(time, "%H:%M").ok()?;
-    let today = Local::now().date_naive();
-    Local.from_local_datetime(&today.and_time(naive)).single()
+/// Tonight's plan: the deadline of the night that is running now, not the next
+/// clock time that happens to lie ahead. Opened at 23:00 with a 22:00 curfew,
+/// the night is gone, so the card starts the timer from now instead of counting
+/// twenty-three hours to tomorrow or cutting power on sight.
+fn plan_for_today(config: &Config) -> Plan {
+    curfew::plan_for_now(
+        &config.start,
+        &config.deadline,
+        config.grace_minutes,
+        Local::now(),
+    )
 }
 
-fn plan_for_today(config: &Config) -> Plan {
+/// True when the app was opened after the night's deadline: the timer that
+/// follows is this session's own evening, not the scheduled one.
+fn opened_late(config: &Config, now: DateTime<Local>) -> bool {
+    curfew::night_deadline(&config.start, &config.deadline, now).is_some_and(|closes| now >= closes)
+}
+
+/// Take ownership of a plan. Arming is decided here, once: a plan that starts
+/// expired was not witnessed counting down, so it may show the truth but must
+/// not fire.
+fn adopt(inner: &mut Inner, plan: Plan) {
     let now = Local::now();
-    let mut deadline = today_at(&config.deadline).unwrap_or(now);
-    // A deadline that is already gone belongs to last night. Rolling it to
-    // tomorrow is what stops a freshly woken laptop from being greeted with an
-    // instant outage the moment the app starts.
-    if (now - deadline).num_seconds() > 60 {
-        deadline += Duration::days(1);
-    }
-    Plan::new(deadline, config.grace_minutes, now)
+    inner.armed = plan.phase(now) != Phase::Expired;
+    inner.fired = false;
+    inner.last_tick = Some(now);
+    inner.plan = Some(plan);
 }
 
 /// Tonight's plan, created on first use and kept until the schedule changes.
-fn current_plan(inner: &mut Inner, config: &Config) -> Plan {
+fn current_plan(app: &AppHandle, inner: &mut Inner, config: &Config) -> Plan {
     if inner.plan.is_none() {
-        inner.plan = Some(plan_for_today(config));
+        let now = Local::now();
+        let plan = plan_for_today(config);
+        // A late night is the one case where the timer is not the schedule's:
+        // the log should say so, or the night will read as a moved curfew.
+        if opened_late(config, now) {
+            let _ = audit::append(
+                &log_path(app),
+                now,
+                &format!(
+                    "opened after curfew; timer started, {} min from now",
+                    plan.deadline().signed_duration_since(now).num_minutes()
+                ),
+            );
+        }
+        adopt(inner, plan);
     }
     inner.plan.clone().expect("plan was just created")
 }
@@ -137,7 +170,7 @@ fn current_plan(inner: &mut Inner, config: &Config) -> Plan {
 fn state_of(app: &AppHandle, runtime: &Runtime, config: &Config) -> CurfewState {
     let now = Local::now();
     let mut inner = runtime.inner.lock().expect("runtime lock");
-    let plan = current_plan(&mut inner, config);
+    let plan = current_plan(app, &mut inner, config);
     let lockout = inner
         .lockout_until
         .map(|until| (until - now).num_seconds().max(0))
@@ -151,6 +184,7 @@ fn state_of(app: &AppHandle, runtime: &Runtime, config: &Config) -> CurfewState 
         grace_remaining_seconds: plan.grace_remaining(now),
         phase: plan.phase(now),
         total_seconds: plan.total_seconds(),
+        overdue_seconds: plan.overdue(now),
         deadline_minutes: plan.remaining(now) / 60,
         grace_minutes: plan.grace_seconds() / 60,
         borrows: plan.borrows(),
@@ -177,7 +211,7 @@ fn tick(app: &AppHandle) {
     {
         let runtime = app.state::<Runtime>();
         let mut inner = runtime.inner.lock().expect("runtime lock");
-        let mut plan = current_plan(&mut inner, &config);
+        let mut plan = current_plan(app, &mut inner, &config);
 
         if let Some(last) = inner.last_tick {
             let gap = now.signed_duration_since(last);
@@ -196,9 +230,16 @@ fn tick(app: &AppHandle) {
         }
 
         let dry = inner.dry_run;
-        if plan.phase(now) == Phase::Expired && !inner.fired && !plan.released() {
-            inner.fired = true;
-            fire = Some((plan.clone(), dry));
+        if plan.phase(now) == Phase::Expired {
+            // Only a countdown this process watched run out takes the machine
+            // down. A plan that was already expired when it was adopted (a late
+            // open, a wake after curfew) waits for a press instead.
+            if inner.armed && !inner.fired && !plan.released() {
+                inner.fired = true;
+                fire = Some((plan.clone(), dry));
+            }
+        } else {
+            inner.armed = true;
         }
 
         inner.last_tick = Some(now);
@@ -255,22 +296,29 @@ fn restore_saved(app: &AppHandle) {
     let deadline = deadline.with_timezone(&Local);
     let last = last.with_timezone(&Local);
     let now = Local::now();
-    if last.date_naive() != now.date_naive() || (now - last).num_hours() > 12 {
+    // A plan saved before midnight is still tonight's at 00:30, but a plan
+    // from yesterday is not tonight's by breakfast.
+    let same_night = last.date_naive() == now.date_naive()
+        || (now.hour() < curfew::NIGHT_END_HOUR
+            && last.date_naive().succ_opt() == Some(now.date_naive()));
+    if !same_night || (now - last).num_hours() > 12 {
         persist::clear(app);
         return;
     }
 
     let runtime = app.state::<Runtime>();
     let mut inner = runtime.inner.lock().expect("runtime lock");
-    inner.plan = Some(Plan::restore(
-        deadline,
-        saved.grace_seconds,
-        saved.total_seconds,
-        saved.borrows,
-        saved.released,
-    ));
+    adopt(
+        &mut inner,
+        Plan::restore(
+            deadline,
+            saved.grace_seconds,
+            saved.total_seconds,
+            saved.borrows,
+            saved.released,
+        ),
+    );
     inner.last_tick = Some(last);
-    inner.fired = false;
 }
 
 fn write_summary(app: &AppHandle, plan: &Plan, outcome: &str) {
@@ -307,7 +355,7 @@ fn wait_ten(app: AppHandle, runtime: State<Runtime>) -> CurfewState {
     let now = Local::now();
     let plan = {
         let mut inner = runtime.inner.lock().expect("runtime lock");
-        let mut plan = current_plan(&mut inner, &config);
+        let mut plan = current_plan(&app, &mut inner, &config);
         let outcome = plan.wait(now);
         inner.plan = Some(plan.clone());
         plan
@@ -358,7 +406,7 @@ fn shutdown_now(app: AppHandle, runtime: State<Runtime>) -> Result<CurfewState, 
 
     let (plan, dry_run) = {
         let mut inner = runtime.inner.lock().expect("runtime lock");
-        let plan = current_plan(&mut inner, &config);
+        let plan = current_plan(&app, &mut inner, &config);
         (plan, inner.dry_run)
     };
 
@@ -394,7 +442,7 @@ fn request_release(app: AppHandle, runtime: State<Runtime>, key: String) -> Rele
         .unwrap_or(false);
 
     if matches {
-        let mut plan = current_plan(&mut inner, &config);
+        let mut plan = current_plan(&app, &mut inner, &config);
         plan.release();
         inner.plan = Some(plan.clone());
         inner.lockout_until = None;
@@ -655,12 +703,11 @@ fn open_card(
                 .unwrap_or(false),
         };
         if !keep {
-            inner.plan = Some(match minutes {
+            let plan = match minutes {
                 Some(m) if m > 0 => Plan::new(now + Duration::minutes(m), 1, now),
                 _ => plan_for_today(&config),
-            });
-            inner.fired = false;
-            inner.last_tick = Some(now);
+            };
+            adopt(&mut inner, plan);
         }
         inner.dry_run = dry_run.unwrap_or(false);
         inner.summarised = false;
@@ -736,13 +783,12 @@ fn open_card_for(app: &AppHandle, minutes: i64) -> Result<(), String> {
                 .map(|plan| plan.phase(now) != Phase::Expired)
                 .unwrap_or(false);
         if !keep {
-            inner.plan = Some(if minutes > 0 {
+            let plan = if minutes > 0 {
                 Plan::new(now + Duration::minutes(minutes), 1, now)
             } else {
                 plan_for_today(&config)
-            });
-            inner.fired = false;
-            inner.last_tick = Some(now);
+            };
+            adopt(&mut inner, plan);
         }
         inner.dry_run = minutes > 0;
         inner.summarised = false;

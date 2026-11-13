@@ -58,6 +58,6 @@ describe("times", () => {
   it("labels the phases", () => {
     expect(phaseLabel("work")).toContain("until shutdown");
     expect(phaseLabel("grace")).toContain("grace");
-    expect(phaseLabel("expired")).toBe("shutting down");
+    expect(phaseLabel("expired")).toBe("past curfew");
   });
 });

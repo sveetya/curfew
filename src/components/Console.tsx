@@ -25,8 +25,15 @@ const PANES: Array<{ id: View; label: string }> = [
 
 function DeathClock({ state, start }: { state: CurfewState | null; start?: string }) {
   const grace = state?.phase === "grace";
-  const seconds = grace ? (state?.graceRemainingSeconds ?? 0) : (state?.remainingSeconds ?? 0);
-  const pct = percentLeft(seconds, grace ? (state?.graceSeconds ?? 1) : (state?.totalSeconds ?? 1));
+  const expired = state?.phase === "expired";
+  const seconds = grace
+    ? (state?.graceRemainingSeconds ?? 0)
+    : expired
+      ? (state?.overdueSeconds ?? 0)
+      : (state?.remainingSeconds ?? 0);
+  const pct = expired
+    ? 0
+    : percentLeft(seconds, grace ? (state?.graceSeconds ?? 1) : (state?.totalSeconds ?? 1));
 
   return (
     <div>
@@ -34,19 +41,24 @@ function DeathClock({ state, start }: { state: CurfewState | null; start?: strin
         <div
           className={cn(
             "tabular font-mono text-display font-medium tracking-tight",
-            grace ? "text-secondary" : "text-foreground",
+            expired ? "text-destructive" : grace ? "text-secondary" : "text-foreground",
           )}
         >
-          {state?.released ? "off" : clock(seconds)}
+          {state?.released ? "off" : expired ? `+${clock(seconds)}` : clock(seconds)}
         </div>
         <div className="text-sm text-muted-foreground">
-          {grace ? "grace ends at" : "until"} {state?.deadlineLabel ?? "—"}
+          {expired
+            ? `overdue since ${state?.deadlineLabel ?? "—"}`
+            : `${grace ? "grace ends at" : "until"} ${state?.deadlineLabel ?? "—"}`}
         </div>
       </div>
 
       <div className="mt-7 h-0.5 w-full rounded-full bg-white/8">
         <div
-          className={cn("h-full rounded-full", grace ? "bg-secondary" : "bg-primary-ink")}
+          className={cn(
+            "h-full rounded-full",
+            expired ? "bg-destructive" : grace ? "bg-secondary" : "bg-primary-ink",
+          )}
           style={{ width: `${pct}%` }}
         />
       </div>

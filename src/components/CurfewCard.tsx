@@ -26,8 +26,8 @@ const TONE = {
     dot: "bg-destructive",
     clock: "text-destructive",
     bar: "bg-destructive",
-    label: "Shutting down",
-    note: "now",
+    label: "Past curfew",
+    note: "overdue",
   },
 } as const;
 
@@ -127,7 +127,14 @@ export function CurfewCard() {
 
   const tone = TONE[state.phase];
   const grace = state.phase === "grace";
-  const seconds = grace ? state.graceRemainingSeconds : state.remainingSeconds;
+  const expired = state.phase === "expired";
+  // Past the deadline there is nothing left to count down: the honest number is
+  // how long ago the shutdown was due.
+  const seconds = grace
+    ? state.graceRemainingSeconds
+    : expired
+      ? state.overdueSeconds
+      : state.remainingSeconds;
 
   return (
     <div className="p-2">
@@ -146,7 +153,7 @@ export function CurfewCard() {
           <div
             className={cn("tabular font-mono text-display font-medium tracking-tight", tone.clock)}
           >
-            {state.released ? "off" : clock(seconds)}
+            {state.released ? "off" : expired ? `+${clock(seconds)}` : clock(seconds)}
           </div>
           <div className="text-xs text-muted-foreground">
             {grace ? "grace" : state.borrows > 0 ? `${state.borrows} borrowed` : tone.note}
@@ -158,7 +165,10 @@ export function CurfewCard() {
             <div
               className={cn("h-full rounded-full", tone.bar)}
               style={{
-                width: `${percentLeft(seconds, grace ? state.graceSeconds : state.totalSeconds)}%`,
+                width: `${percentLeft(
+                  expired ? 0 : seconds,
+                  grace ? state.graceSeconds : state.totalSeconds,
+                )}%`,
               }}
             />
           </div>

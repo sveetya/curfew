@@ -14,6 +14,8 @@ export interface CurfewState {
   phase: Phase;
   /** Length of the whole countdown, for the progress bar. */
   totalSeconds: number;
+  /** Seconds past the deadline; zero until Windows was due to be down. */
+  overdueSeconds: number;
   deadlineMinutes: number;
   graceMinutes: number;
   /** Grace windows borrowed tonight (Wait pressed during FINISH UP). */

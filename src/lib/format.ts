@@ -41,5 +41,7 @@ export function parseHHmm(value: string): number | null {
 export function phaseLabel(phase: "work" | "grace" | "expired"): string {
   if (phase === "work") return "until shutdown";
   if (phase === "grace") return "grace ends at shutdown";
-  return "shutting down";
+  // Past the deadline the app no longer claims a shutdown is under way: a
+  // night opened after curfew shows how late it is instead.
+  return "past curfew";
 }

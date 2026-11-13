@@ -35,12 +35,55 @@ let released = false;
 let deadlineShiftMinutes = 0;
 let startedAt = Date.now();
 
+/** Six in the morning: where a curfew night stops being tonight's problem. */
+const NIGHT_END_HOUR = 6;
+
+function at(hour: number, minute: number, base: Date): Date {
+  const target = new Date(base);
+  target.setHours(hour, minute, 0, 0);
+  return target;
+}
+
+/**
+ * The deadline of the night running now, mirroring night_deadline in Rust: a
+ * night opens at `start` and ends at six, so 00:30 still belongs to yesterday's
+ * curfew and 23:00 has already missed it.
+ */
+function nightDeadline(now: Date): Date {
+  const [dh, dm] = config.deadline.split(":").map(Number);
+  const [sh, sm] = config.start.split(":").map(Number);
+  const yesterday = new Date(now.getTime() - 24 * 3600_000);
+  const lastOpens = at(sh, sm, yesterday);
+  const lastEnds = at(NIGHT_END_HOUR, 0, lastOpens);
+  if (lastEnds.getTime() <= lastOpens.getTime()) lastEnds.setDate(lastEnds.getDate() + 1);
+  const inLastNight = now.getTime() >= lastOpens.getTime() && now.getTime() < lastEnds.getTime();
+  return at(dh, dm, inLastNight ? yesterday : now);
+}
+
+/** How long the schedule's evening lasts, in minutes. */
+function windowMinutes(): number {
+  const [sh, sm] = config.start.split(":").map(Number);
+  const [dh, dm] = config.deadline.split(":").map(Number);
+  const length = dh * 60 + dm - (sh * 60 + sm);
+  return length > 0 ? length : 30;
+}
+
 function deadlineDate(): Date {
-  const [h, m] = config.deadline.split(":").map(Number);
-  const target = new Date();
-  target.setHours(h, m, 0, 0);
-  if (target.getTime() <= Date.now() - 1000 && phaseOverride() === null) {
-    target.setDate(target.getDate() + 1);
+  const now = new Date();
+  let target: Date;
+  if (phaseOverride() === null) {
+    // Opened after curfew the night is gone, so the card starts the timer:
+    // the same length of evening, counted from now.
+    const closes = nightDeadline(now);
+    target =
+      closes.getTime() > now.getTime()
+        ? closes
+        : new Date(now.getTime() + windowMinutes() * 60_000);
+  } else {
+    // A preview phase is a look at the card's face, so keep a future clock.
+    const [h, m] = config.deadline.split(":").map(Number);
+    target = at(h, m, now);
+    if (target.getTime() <= now.getTime()) target.setDate(target.getDate() + 1);
   }
   return new Date(target.getTime() + deadlineShiftMinutes * 60_000);
 }
@@ -65,6 +108,7 @@ export function previewState(): CurfewState {
     graceRemainingSeconds: override === "grace" ? 182 : Math.max(0, untilShutdown),
     phase: override === "grace" ? "grace" : phase,
     totalSeconds: Math.round(totalMs / 1000),
+    overdueSeconds: Math.max(0, Math.round((now - deadline.getTime()) / 1000)),
     deadlineMinutes: Math.round(totalMs / 60_000),
     graceMinutes: config.graceMinutes,
     borrows,
